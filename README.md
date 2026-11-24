@@ -8,9 +8,9 @@
 .
 ├── docs/          # Git 工作约定、命令规则和 README 编写约定
 ├── scripts/       # 仓库 Git 维护脚本及其隔离测试
-├── tests/         # 论文检索、记忆与对话入口的测试
-├── tools/         # Agent 工具注册表、论文知识库及论文和记忆工具
-├── .gitignore     # 本地笔记、环境变量文件、数据库及缓存的忽略规则
+├── tests/         # 论文检索、记忆、MCP 与对话入口的测试
+├── tools/         # Agent 工具注册表、论文知识库、记忆工具和 MCP 适配器
+├── .gitignore     # 本地笔记、配置、数据库及缓存的忽略规则
 ├── AGENTS.md      # 项目协作与教学方式
 ├── README.md      # 项目用途与目录
 ├── chat.py        # 命令行多轮对话入口
@@ -67,6 +67,27 @@ python chat.py
 ```
 
 每轮最多执行 10 次工具调用。输入 `/exit` 结束对话。
+
+### 添加 MCP 服务器
+
+在与 `chat.py` 同目录的 `mcp.json` 中，把每个服务器添加到 `mcpServers` 对象。文件由 Git 忽略。首次添加后重新运行 `python chat.py`，输入“请用工具查看你当前有哪些工具”来检查注册结果。
+
+本地服务器用 `command` 和 `args` 启动。下面的日期时间服务器示例需要本机已有 `uvx`。 [MCP Time 服务器文档](https://github.com/modelcontextprotocol/servers/tree/main/src/time)
+
+```json
+{
+  "mcpServers": {
+    "time": {
+      "command": "uvx",
+      "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"]
+    }
+  }
+}
+```
+
+已运行的 Streamable HTTP 服务器用 `url` 连接，例如在 `mcpServers` 中添加 `"my_server": {"url": "http://127.0.0.1:3001/mcp"}`。把地址换成实际的 MCP 端点。HTTP 可用 `headers` 提供请求头，本地进程可用 `env` 设置环境变量、用 `cwd` 指定工作目录。相对工作目录以仓库根目录为准。
+
+Agent 在启动时发现 MCP 工具。模型可以按需调用这些工具并取得文本或结构化结果。用 `{"mcpServers": {}}` 可以启动没有外部服务器的会话。
 
 ### 论文知识库
 

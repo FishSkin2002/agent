@@ -50,11 +50,15 @@ def report_progress(stage: str, message: str) -> None:
     print(f"[{stage}] {message}", file=sys.stderr, flush=True)
 
 
-def read_question() -> str:
-    label = "【 用户 】"
+def _speaker_prompt(speaker: str, background: int) -> str:
+    label = f"【 {speaker} 】"
     if sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and "NO_COLOR" not in os.environ:
-        label = "\x1b[1;30;106m  用户  \x1b[0m"
-    print(f"\n{label} ❯ ", end="", flush=True)
+        label = f"\x1b[1;30;{background}m  {speaker}  \x1b[0m"
+    return f"\n{label} ❯ "
+
+
+def read_question() -> str:
+    print(_speaker_prompt("用户", background=106), end="", flush=True)
     return input().strip()
 
 
@@ -229,7 +233,7 @@ def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: Tool
             continue
 
         history.append(turn)
-        print(f"\n【助手】\n{turn[-1]['content']}")
+        print(f"{_speaker_prompt('助手', background=105)}{turn[-1]['content']}")
 
 
 def main() -> int:

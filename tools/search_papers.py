@@ -1,3 +1,4 @@
+import re
 import sys
 from typing import Any
 
@@ -9,6 +10,20 @@ from .paper_library import Paper, PaperLibrary
 
 class SearchPapersTool(Tool):
     _MAX_RESULTS = 5
+    _FIELD_LABELS = {
+        "ti": "论文标题",
+        "au": "作者",
+        "abs": "摘要",
+        "co": "备注",
+        "jr": "期刊引用",
+        "cat": "学科分类",
+        "rn": "报告编号",
+        "id": "论文编号",
+        "all": "全部字段",
+        "submittedDate": "提交日期",
+    }
+    # Match quoted phrases as a unit before looking for field prefixes.
+    _QUERY_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"?|(^|[\s(])([A-Za-z]+):', re.DOTALL)
 
     name = "search_papers"
     description = (
@@ -40,7 +55,7 @@ class SearchPapersTool(Tool):
             return {"error": "query 必须是非空字符串"}
 
         query = query.strip()
-        print(f"检索 arXiv > {query}", file=sys.stderr, flush=True)
+        print(f"检索 arXiv > {self._display_query(query)}", file=sys.stderr, flush=True)
         try:
             papers = self._search_arxiv(query)
         except (arxiv.ArxivError, OSError):
@@ -49,6 +64,16 @@ class SearchPapersTool(Tool):
             return {"error": str(error)}
         self._library.save_papers(papers)
         return {"papers": papers}
+
+    @classmethod
+    def _display_query(cls, query: str) -> str:
+        def display_token(match: re.Match[str]) -> str:
+            boundary, field = match.groups()
+            if field in cls._FIELD_LABELS:
+                return f"{boundary}{cls._FIELD_LABELS[field]}："
+            return match.group(0)
+
+        return cls._QUERY_TOKEN.sub(display_token, query)
 
     def _search_arxiv(self, query: str) -> list[Paper]:
         search = arxiv.Search(query=query, max_results=self._MAX_RESULTS)

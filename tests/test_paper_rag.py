@@ -13,9 +13,34 @@ import numpy as np
 from chat import create_tool_registry
 from memory import MemoryStore
 from tools.paper_library import PaperLibrary
+from tools.search_papers import SearchPapersTool
 
 
 class PaperRAGTests(unittest.TestCase):
+    def test_arxiv_log_translates_fields_and_preserves_the_api_query(self):
+        query = (
+            'ti:"On-Policy Self-Distillation with abs: in the title" '
+            'AND (au:Chen OR abs:distillation) AND co:revised AND jr:ICLR AND cat:cs.CL '
+            'AND rn:123 AND id:2210.03629v3 AND all:OPSD '
+            'AND submittedDate:[202301010000 TO 202612312359]'
+        )
+        with TemporaryDirectory() as directory, redirect_stderr(io.StringIO()) as log:
+            with (
+                closing(PaperLibrary(Path(directory) / "papers.sqlite3")) as library,
+                patch("tools.search_papers.arxiv.Client.results", return_value=[]) as results,
+            ):
+                result = SearchPapersTool(library).run({"query": query})
+
+        self.assertEqual(result, {"papers": []})
+        self.assertEqual(results.call_args.args[0].query, query)
+        self.assertIn(
+            '论文标题："On-Policy Self-Distillation with abs: in the title" '
+            'AND (作者：Chen OR 摘要：distillation) AND 备注：revised AND 期刊引用：ICLR AND 学科分类：cs.CL '
+            'AND 报告编号：123 AND 论文编号：2210.03629v3 AND 全部字段：OPSD '
+            'AND 提交日期：[202301010000 TO 202612312359]',
+            log.getvalue(),
+        )
+
     def test_registry_persists_catalog_and_page_evidence(self):
         paper_id = "2210.03629v3"
         pdf_text = [

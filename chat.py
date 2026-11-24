@@ -19,7 +19,7 @@ LEGACY_KEY_MODELS = {
     "GLM_API_KEY": "glm-4.7-flash",
     "DEEPSEEK_API_KEY": "deepseek-flash",
 }
-MAX_TOOL_CALLS = 3
+MAX_TOOL_CALLS = 10
 SYSTEM_MESSAGE = {
     "role": "system",
     "content": (

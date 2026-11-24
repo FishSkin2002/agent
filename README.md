@@ -8,9 +8,9 @@
 .
 ├── docs/          # Git 工作约定、命令规则和 README 编写约定
 ├── scripts/       # 仓库 Git 维护脚本及其隔离测试
-├── tests/         # 记忆与对话入口的测试
-├── tools/         # Agent 的工具注册表、论文检索和记忆工具
-├── .gitignore     # 本地笔记、环境变量文件、记忆库及缓存的忽略规则
+├── tests/         # 论文检索、记忆与对话入口的测试
+├── tools/         # Agent 工具注册表、论文知识库及论文和记忆工具
+├── .gitignore     # 本地笔记、环境变量文件、数据库及缓存的忽略规则
 ├── AGENTS.md      # 项目协作与教学方式
 ├── README.md      # 项目用途与目录
 ├── chat.py        # 命令行多轮对话入口
@@ -22,9 +22,13 @@
 
 在对话中输入“我把 ReAct 的论文标题记成了 Synergjzing Reasoning and Acting，请帮我找到原论文并给出版本链接。”终端会显示模型生成的查询式，回答会给出找到的论文，例如 [ReAct 的 arXiv 版本](https://arxiv.org/abs/2210.03629v3)。
 
+可以继续问“ReAct 在 HotpotQA 和 FEVER 上分别用了几个 few-shot 示例？请引用原文页码。”答案可在 ReAct v3 的 PDF 第 4 页核对。
+
 ## 检索结果的核验
 
 打开回答中的 arXiv 版本链接，核对标题、作者和摘要。首次提交日期以 arXiv 记录为准。
+
+核对正文证据时，打开带 `#page=` 的版本链接并查看该页原文。
 
 Thank you to arXiv for use of its open access interoperability.
 
@@ -63,6 +67,14 @@ python chat.py
 ```
 
 每轮最多执行 10 次工具调用。输入 `/exit` 结束对话。
+
+### 论文知识库
+
+在线搜索返回的论文按带版本的 arXiv ID 保存在仓库根目录的 `.agent-data/papers.sqlite3`。重开对话后，Agent 可用 `search_paper_library` 对这些论文的标题和摘要做向量检索。
+
+`search_paper_passages` 接收英文查询和可选的带版本 arXiv ID。指定 ID 时首次下载 PDF 并索引正文，后续查询复用片段。省略 ID 时检索所有已索引的正文，最多返回 3 段，附页码和版本链接。
+
+首次做向量检索时，FastEmbed 会下载 BGE 英文嵌入模型到 `.agent-data/embedding-models/`。模型在本地 CPU 上运行。中文问题由对话模型改写成英文检索请求。
 
 ### 记忆
 

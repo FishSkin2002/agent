@@ -2,7 +2,7 @@ import json
 import sqlite3
 import sys
 from collections import deque
-from contextlib import closing
+from contextlib import ExitStack, closing
 from http.client import HTTPException
 from pathlib import Path
 from typing import Any
@@ -12,9 +12,12 @@ from urllib.request import Request, urlopen
 from memory import DEFAULT_SHORT_TERM_TURNS, MemoryStore
 from tools.forget_memory import ForgetMemoryTool
 from tools.list_tools import ListToolsTool
+from tools.paper_library import PaperLibrary
 from tools.registry import ToolRegistry
 from tools.save_memory import SaveMemoryTool
 from tools.search_memory import SearchMemoryTool
+from tools.search_paper_library import SearchPaperLibraryTool
+from tools.search_paper_passages import SearchPaperPassagesTool
 from tools.search_papers import SearchPapersTool
 
 
@@ -33,6 +36,7 @@ SYSTEM_MESSAGE = {
         "你是论文检索助手，也可以回答一般概念问题。"
         "根据问题决定直接回答还是调用工具。可以查询可用工具，并根据描述和参数选择。"
         "用获取的证据回答并引用来源。查不到证据或证据不足时，请如实说明。"
+        "回答论文方法或实验细节时，查找论文原文片段，并引用返回的版本和页码。"
         "需要以前的信息时主动查找记忆。主动保存对后续对话有用的信息并评估重要性，"
         "发现已有记忆需要更正或已经失效时，自主修改或淘汰。"
     ),
@@ -40,10 +44,12 @@ SYSTEM_MESSAGE = {
 Message = dict[str, Any]
 
 
-def create_tool_registry(memory: MemoryStore) -> ToolRegistry:
+def create_tool_registry(memory: MemoryStore, papers: PaperLibrary) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(ListToolsTool(registry))
-    registry.register(SearchPapersTool())
+    registry.register(SearchPapersTool(papers))
+    registry.register(SearchPaperLibraryTool(papers))
+    registry.register(SearchPaperPassagesTool(papers))
     registry.register(SaveMemoryTool(memory))
     registry.register(SearchMemoryTool(memory))
     registry.register(ForgetMemoryTool(memory))
@@ -176,8 +182,8 @@ def run_turn(
             })
 
 
-def chat(url: str, model: str, api_key: str, memory: MemoryStore) -> int:
-    registry = create_tool_registry(memory)
+def chat(url: str, model: str, api_key: str, memory: MemoryStore, papers: PaperLibrary) -> int:
+    registry = create_tool_registry(memory, papers)
     history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
     while True:
@@ -208,15 +214,15 @@ def main() -> int:
         return 1
 
     data_dir = project_dir / ".agent-data"
-    try:
-        data_dir.mkdir(exist_ok=True)
-        memory = MemoryStore(data_dir / "memory.sqlite3", short_term_turns)
-    except (OSError, sqlite3.Error) as error:
-        print(f"无法打开记忆数据库（{error}）。", file=sys.stderr)
-        return 1
-
-    with closing(memory):
-        return chat(url, model, api_key, memory)
+    with ExitStack() as stack:
+        try:
+            data_dir.mkdir(exist_ok=True)
+            memory = stack.enter_context(closing(MemoryStore(data_dir / "memory.sqlite3", short_term_turns)))
+            papers = stack.enter_context(closing(PaperLibrary(data_dir / "papers.sqlite3")))
+        except (OSError, sqlite3.Error) as error:
+            print(f"无法打开本地数据库（{error}）。", file=sys.stderr)
+            return 1
+        return chat(url, model, api_key, memory, papers)
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ SYSTEM_MESSAGE = {
         "你是论文检索助手，也可以回答一般概念问题。"
         "根据问题决定直接回答还是调用工具。可以查询可用工具，并根据描述和参数选择。"
         "如果当前需要调用工具，先发起工具调用，拿到结果后再给出文本答复。"
-        "有多个相互依赖的子任务时，可以先制定计划。"
+        "有多个相互依赖的子任务时，可以调用 create_plan 进入计划阶段。"
         "用获取的证据回答并引用来源。查不到证据或证据不足时，请如实说明。"
         "回答论文方法或实验细节时，查找论文原文片段，并引用返回的版本和页码。"
         "需要以前的信息时主动查找记忆。主动保存对后续对话有用的信息并评估重要性，"
@@ -201,6 +201,37 @@ def _paper_evidence_keys(paper_results: list[Message]) -> set[tuple]:
     return keys
 
 
+def _generate_plan(
+    url: str, model: str, api_key: str, messages: list[Message], *, max_output_tokens: int,
+) -> str:
+    report_progress("计划", "正在制定本轮计划")
+    instructions = {"role": "system", "content": (
+        "根据本轮用户问题和已有工具结果，制定执行计划。参考近期对话来理解指代。"
+        "按依赖顺序列出 2 到 10 个具体步骤。只输出步骤，每行一步，使用 1.、2. 这样的编号。"
+    )}
+    last_chunk = ""
+
+    def show_chunk(chunk: str) -> None:
+        nonlocal last_chunk
+        print(chunk, end="", file=sys.stderr, flush=True)
+        last_chunk = chunk
+
+    try:
+        message = call_model(
+            url, model, api_key, [instructions, *messages], ToolRegistry(),
+            max_tokens=max_output_tokens, on_text=show_chunk,
+        )
+        if message.get("tool_calls"):
+            raise RuntimeError("规划模型未返回步骤列表")
+        plan = message["content"]
+        if not last_chunk:
+            show_chunk(plan)
+        return plan
+    finally:
+        if last_chunk and not last_chunk.endswith("\n"):
+            print(file=sys.stderr, flush=True)
+
+
 def _workflow_context(
     steps: tuple[str, ...], step_results: list[str], missing_evidence: str, remaining_calls: int
 ) -> list[Message]:
@@ -303,7 +334,11 @@ def run_turn(
     output: AssistantReply | None = None,
 ) -> list[Message]:
     state = TurnState([{"role": "user", "content": question}], max_tool_calls)
-    plan = CreatePlanTool()
+
+    def generate_plan() -> str:
+        return _generate_plan(url, model, api_key, history + state.messages, max_output_tokens=max_output_tokens)
+
+    plan = CreatePlanTool(generate_plan)
     with registry.temporary(plan):
         draft = _run_react(
             url, model, api_key, history, registry, state, plan=plan, max_output_tokens=max_output_tokens, output=output,

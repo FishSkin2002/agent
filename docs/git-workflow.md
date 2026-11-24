@@ -65,7 +65,7 @@ PR 的评审批准、接受（合并）、拒绝（关闭）以及自动合并�
 
 入口固定仓库和 origin，不转发任意 Git 参数；删除、强推、amend、reset、rebase 等动作或参数会被拒绝。发生冲突或未完成的 Git 操作时停止并检查状态，保留已有历史。
 
-[工具源码](../tools/git_workflow.py) 和 [隔离仓库测试](../tools/test_git_workflow.py) 随本项目维护。更新入口或授权文件时，先检查差异，运行 `/usr/bin/python3 -I -S tools/test_git_workflow.py`，再通过正式宿主审批安装；不为原始 Git 写命令申请宽泛持久允许。
+[工具源码](../scripts/git/git_workflow.py) 和 [隔离仓库测试](../scripts/git/test_git_workflow.py) 随本项目维护。更新入口或授权文件时，先检查差异，运行 `/usr/bin/python3 -I -S scripts/git/test_git_workflow.py`，再通过正式宿主审批安装；不为原始 Git 写命令申请宽泛持久允许。
 
 ## 授权文件
 

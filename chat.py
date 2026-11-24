@@ -6,7 +6,7 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from paper_retrieval import MAX_QUERIES, retrieve_papers
+from tools.paper_retrieval import MAX_QUERIES, retrieve_papers
 
 
 MODEL_ENDPOINTS = {

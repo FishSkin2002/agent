@@ -4,7 +4,7 @@ from typing import Any
 
 from arxiv import ArxivError
 
-from paper_search import MAX_RESULTS, search_papers
+from .paper_search import MAX_RESULTS, search_papers
 
 
 MAX_QUERIES = 3

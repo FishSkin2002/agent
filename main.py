@@ -5,12 +5,9 @@ import sys
 from collections import deque
 from contextlib import ExitStack, closing
 from dataclasses import dataclass, field
-from http.client import HTTPException
 from pathlib import Path
-from typing import Any
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
+from llm.client import DEFAULT_MAX_OUTPUT_TOKENS, Message, call_model
 from memory import DEFAULT_SHORT_TERM_TURNS, MemoryStore
 from tools.create_plan import CreatePlanTool
 from tools.forget_memory import ForgetMemoryTool
@@ -40,6 +37,7 @@ SYSTEM_MESSAGE = {
     "content": (
         "你是论文检索助手，也可以回答一般概念问题。"
         "根据问题决定直接回答还是调用工具。可以查询可用工具，并根据描述和参数选择。"
+        "如果当前需要调用工具，先发起工具调用，拿到结果后再给出文本答复。"
         "有多个相互依赖的子任务时，可以先制定计划。"
         "用获取的证据回答并引用来源。查不到证据或证据不足时，请如实说明。"
         "回答论文方法或实验细节时，查找论文原文片段，并引用返回的版本和页码。"
@@ -47,7 +45,6 @@ SYSTEM_MESSAGE = {
         "发现已有记忆需要更正或已经失效时，自主修改或淘汰。"
     ),
 }
-Message = dict[str, Any]
 
 
 @dataclass
@@ -73,6 +70,22 @@ def read_question() -> str:
     return input().strip()
 
 
+class AssistantReply:
+    def __init__(self) -> None:
+        self.streaming = False
+
+    def write(self, text: str) -> None:
+        if not self.streaming:
+            print(_speaker_prompt("助手", background=105), end="", flush=True)
+            self.streaming = True
+        print(text, end="", flush=True)
+
+    def end_stream(self) -> None:
+        if self.streaming:
+            print(flush=True)
+            self.streaming = False
+
+
 def create_tool_registry(memory: MemoryStore, papers: PaperLibrary) -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(ListToolsTool(registry))
@@ -85,7 +98,7 @@ def create_tool_registry(memory: MemoryStore, papers: PaperLibrary) -> ToolRegis
     return registry
 
 
-def load_config(path: Path) -> tuple[str, str, str, int]:
+def load_config(path: Path) -> tuple[str, str, str, int, int]:
     try:
         lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as error:
@@ -122,58 +135,13 @@ def load_config(path: Path) -> tuple[str, str, str, int]:
         raise ValueError("请在 .env 的 MEMORY_SHORT_TERM_TURNS 中填写正整数。") from error
     if not 1 <= short_term_turns < 2**63:
         raise ValueError("请在 .env 的 MEMORY_SHORT_TERM_TURNS 中填写有效的正整数。")
-    return MODEL_ENDPOINTS[model], model, api_key, short_term_turns
-
-
-def call_model(
-    url: str, model: str, api_key: str, messages: list[Message], registry: ToolRegistry, *, max_tokens: int = 1024
-) -> Message:
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "thinking": {"type": "disabled"},
-        "max_tokens": max_tokens,
-    }
-    if definitions := registry.definitions():
-        payload.update(tools=definitions, tool_choice="auto")
-    request = Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with urlopen(request, timeout=60) as response:
-            body = response.read()
-    except HTTPError as error:
-        error.close()
-        raise RuntimeError(f"API 返回 HTTP {error.code}") from error
-    except (OSError, HTTPException, ValueError) as error:
-        raise RuntimeError("请求无法发送或响应读取失败") from error
-
-    try:
-        choice = json.loads(body)["choices"][0]
-        message = choice["message"]
-        finish_reason = choice["finish_reason"]
-    except (ValueError, KeyError, IndexError, TypeError) as error:
-        raise RuntimeError("API 响应格式有误") from error
-
-    if finish_reason == "length":
-        raise RuntimeError("回复达到输出长度上限，请缩短问题或要求简短回答")
-    if finish_reason not in ("stop", "tool_calls") or not isinstance(message, dict):
-        raise RuntimeError("API 未返回完整的回复")
-
-    reply = message.get("content")
-    tool_calls = message.get("tool_calls")
-    if tool_calls or finish_reason == "tool_calls":
-        if not isinstance(tool_calls, list) or not tool_calls:
-            raise RuntimeError("API 未返回有效的工具调用列表")
-        return {"role": "assistant", "content": reply, "tool_calls": tool_calls}
-
-    if not isinstance(reply, str) or not reply.strip():
-        raise RuntimeError("API 未返回完整的文本回复")
-    return {"role": "assistant", "content": reply}
+        max_output_tokens = int(values.get("MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS))
+    except ValueError as error:
+        raise ValueError("请在 .env 的 MAX_OUTPUT_TOKENS 中填写正整数。") from error
+    if max_output_tokens < 1:
+        raise ValueError("请在 .env 的 MAX_OUTPUT_TOKENS 中填写正整数。")
+    return MODEL_ENDPOINTS[model], model, api_key, short_term_turns, max_output_tokens
 
 
 def _execute_tools(message: Message, registry: ToolRegistry, state: TurnState) -> None:
@@ -252,6 +220,7 @@ def _workflow_context(
 
 def _run_react(
     url: str, model: str, api_key: str, history: list[Message], registry: ToolRegistry, state: TurnState, *,
+    max_output_tokens: int, output: AssistantReply | None,
     plan: CreatePlanTool | None = None, missing_evidence: str = "",
 ) -> str:
     step_results: list[str] = []
@@ -261,9 +230,17 @@ def _run_react(
         steps = plan.steps if plan is not None else ()
         context = _workflow_context(steps, step_results, missing_evidence, state.remaining_calls)
         available_tools = registry if state.remaining_calls else ToolRegistry()
-        message = call_model(url, model, api_key, [SYSTEM_MESSAGE] + history + state.messages + context, available_tools)
+        on_text = None
+        if output is not None and not state.paper_results and len(step_results) == len(steps):
+            on_text = output.write
+        message = call_model(
+            url, model, api_key, [SYSTEM_MESSAGE] + history + state.messages + context, available_tools,
+            max_tokens=max_output_tokens, on_text=on_text,
+        )
 
         if message.get("tool_calls"):
+            if output is not None:
+                output.end_stream()
             if not state.remaining_calls:
                 raise RuntimeError("本轮工具额度已用完，模型未返回文本答复")
             _execute_tools(message, registry, state)
@@ -283,7 +260,8 @@ def _run_react(
 
 
 def _review_draft(
-    url: str, model: str, api_key: str, history: list[Message], question: str, draft: str, paper_results: list[Message]
+    url: str, model: str, api_key: str, history: list[Message], question: str, draft: str, paper_results: list[Message],
+    *, max_output_tokens: int,
 ) -> tuple[str, str]:
     report_progress("复核", "正在核对答复与论文证据")
     messages = [
@@ -299,7 +277,7 @@ def _review_draft(
             "recent_history": history, "question": question, "draft": draft, "retrieval_results": paper_results,
         }, ensure_ascii=False)},
     ]
-    review = call_model(url, model, api_key, messages, ToolRegistry(), max_tokens=2048)
+    review = call_model(url, model, api_key, messages, ToolRegistry(), max_tokens=max_output_tokens)
     try:
         content = review["content"].strip()
         if content.startswith("```json\n") and content.endswith("```"):
@@ -314,19 +292,24 @@ def _review_draft(
 
 
 def run_turn(
-    url: str, model: str, api_key: str, history: list[Message], question: str, registry: ToolRegistry
+    url: str, model: str, api_key: str, history: list[Message], question: str, registry: ToolRegistry, *,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS, output: AssistantReply | None = None,
 ) -> list[Message]:
     state = TurnState([{"role": "user", "content": question}], MAX_TOOL_CALLS)
     plan = CreatePlanTool()
     with registry.temporary(plan):
-        draft = _run_react(url, model, api_key, history, registry, state, plan=plan)
+        draft = _run_react(
+            url, model, api_key, history, registry, state, plan=plan, max_output_tokens=max_output_tokens, output=output,
+        )
 
     final_answer = draft
     previous_evidence: set[tuple] | None = None
     reviewed_fallback = ""
     while state.paper_results:
         try:
-            answer, missing_evidence = _review_draft(url, model, api_key, history, question, draft, state.paper_results)
+            answer, missing_evidence = _review_draft(
+                url, model, api_key, history, question, draft, state.paper_results, max_output_tokens=max_output_tokens,
+            )
         except RuntimeError as error:
             report_progress("复核", f"未完成（{error}）")
             final_answer = reviewed_fallback or f"{draft}\n\n本轮未完成证据复核。"
@@ -346,7 +329,10 @@ def run_turn(
         previous_evidence = evidence
         report_progress("复核", f"正在补查，{missing_evidence}")
         try:
-            draft = _run_react(url, model, api_key, history, registry, state, missing_evidence=missing_evidence)
+            draft = _run_react(
+                url, model, api_key, history, registry, state,
+                missing_evidence=missing_evidence, max_output_tokens=max_output_tokens, output=output,
+            )
         except RuntimeError as error:
             report_progress("复核", f"补查后未取得完整答复（{error}）")
             final_answer = reviewed_fallback
@@ -356,7 +342,10 @@ def run_turn(
     return state.messages
 
 
-def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: ToolRegistry) -> int:
+def chat(
+    url: str, model: str, api_key: str, memory: MemoryStore, registry: ToolRegistry, *,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+) -> int:
     history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
     while True:
@@ -371,21 +360,28 @@ def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: Tool
             for previous_turn in history
             for message in (previous_turn[0], previous_turn[-1])
         ]
+        output = AssistantReply()
         try:
             with memory.turn():
-                turn = run_turn(url, model, api_key, recent_dialogue, question, registry)
+                turn = run_turn(
+                    url, model, api_key, recent_dialogue, question, registry,
+                    max_output_tokens=max_output_tokens, output=output,
+                )
         except (RuntimeError, sqlite3.Error) as error:
+            output.end_stream()
             print(f"调用失败（{error}）。可以重新输入后再试。", file=sys.stderr)
             continue
 
         history.append(turn)
-        print(f"{_speaker_prompt('助手', background=105)}{turn[-1]['content']}")
+        if not output.streaming:
+            output.write(turn[-1]["content"])
+        output.end_stream()
 
 
 def main() -> int:
     project_dir = Path(__file__).parent
     try:
-        url, model, api_key, short_term_turns = load_config(project_dir / ".env")
+        url, model, api_key, short_term_turns, max_output_tokens = load_config(project_dir / ".env")
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
@@ -406,7 +402,7 @@ def main() -> int:
         except MCPConfigError as error:
             print(error, file=sys.stderr)
             return 1
-        return chat(url, model, api_key, memory, registry)
+        return chat(url, model, api_key, memory, registry, max_output_tokens=max_output_tokens)
 
 
 if __name__ == "__main__":

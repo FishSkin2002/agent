@@ -65,7 +65,7 @@ class MemoryStoreTests(unittest.TestCase):
         with TemporaryDirectory() as clean_project:
             project_dir = Path(clean_project)
             (project_dir / ".env").write_text(
-                "MODEL=deepseek-flash\nAPI_KEY=test-key\nMEMORY_SHORT_TERM_TURNS=1\n",
+                "MODEL=deepseek-flash\nAPI_KEY=test-key\nMEMORY_SHORT_TERM_TURNS=1\nMAX_OUTPUT_TOKENS=3072\n",
                 encoding="utf-8",
             )
             saved = self.tool_message("save_memory", [
@@ -95,6 +95,7 @@ class MemoryStoreTests(unittest.TestCase):
                 self.assertNotIn("调用失败", errors.getvalue())
 
             first_tool_results = model.call_args_list[1].args[3][-2:]
+            self.assertTrue(all(request.kwargs["max_tokens"] == 3072 for request in model.call_args_list))
             records = [json.loads(message["content"])["memory"] for message in first_tool_results]
             self.assertEqual([record["kind"] for record in records], ["long_term", "short_term"])
             self.assertEqual([record["written_turn"] for record in records], [1, 1])

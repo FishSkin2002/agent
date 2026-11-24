@@ -55,7 +55,7 @@ class MCPToolTests(unittest.TestCase):
             }}
             (directory / "mcp.json").write_text(json.dumps(config), encoding="utf-8")
 
-            def next_message(url, model, api_key, messages, registry):
+            def next_message(url, model, api_key, messages, registry, **kwargs):
                 latest = messages[-1]
                 if latest["role"] == "user":
                     return self.call("list_tools")

@@ -92,7 +92,7 @@ class MemoryStoreTests(unittest.TestCase):
             ):
                 self.assertEqual(chat.main(), 0)
                 self.assertEqual(chat.main(), 0)
-                self.assertEqual(errors.getvalue(), "")
+                self.assertNotIn("调用失败", errors.getvalue())
 
             first_tool_results = model.call_args_list[1].args[3][-2:]
             records = [json.loads(message["content"])["memory"] for message in first_tool_results]

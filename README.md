@@ -1,6 +1,6 @@
 # 论文知识检索 Agent
 
-这个项目用于学习如何用 LangGraph 构建一个能按问题查找论文证据的 Agent。
+这个项目从用 Python 手写检索流程起步，学习如何构建一个能按问题查找论文证据的 Agent。
 
 ## 项目目录
 
@@ -18,9 +18,8 @@
 项目使用名为 `agent` 的 Conda 环境。首次配置时运行以下命令。
 
 ```bash
-conda create -n agent python=3.12 pip -y
+conda create -n agent python=3.12 -y
 conda activate agent
-python -m pip install langgraph==1.2.22
 ```
 
 日常开发用 `conda activate agent` 进入环境。

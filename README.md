@@ -1,12 +1,10 @@
 # 论文知识检索 Agent
 
-用 Python 实现的 Agent，在线检索论文并根据原文证据回答问题。
-
 ## 项目目录
 
 ```text
 .
-├── docs/             # 项目约定
+├── docs/             # 项目约定和使用示例
 ├── llm/              # 模型请求和流式响应
 ├── memory/           # 记忆存储
 ├── scripts/          # Git 维护脚本
@@ -16,20 +14,8 @@
 ├── AGENTS.md         # 协作规则
 ├── README.md         # 使用说明
 ├── main.py           # 命令行入口
-└── requirements.txt # Python 依赖
+└── requirements.txt # 安装依赖
 ```
-
-## 输入与输出
-
-输入“ReAct 在 HotpotQA 和 FEVER 上分别用了几个 few-shot 示例？请引用原文页码。”
-
-示例答复为 HotpotQA 用了 6 个，FEVER 用了 3 个。 [ReAct v3，第 4 页](https://arxiv.org/pdf/2210.03629v3#page=4)
-
-## 检索结果的核验
-
-打开 arXiv 版本链接核对论文信息，打开带 `#page=` 的 PDF 链接核对原文。
-
-Thank you to arXiv for use of its open access interoperability.
 
 ## 环境准备
 
@@ -69,9 +55,9 @@ python main.py
 终端实时显示模型返回的思考内容。论文检索结果的终端摘要列出论文标题。
 ReAct 判断需要多步取证时，可进入计划阶段。终端实时显示完整计划，随后逐步执行。
 
-### 添加 MCP 服务器
+[查看使用示例](docs/使用示例.md)
 
-在仓库根目录的 `mcp.json` 中添加服务器，替换示例地址后重启 Agent。
+在仓库根目录的 `mcp.json` 中添加 MCP 服务器，替换示例地址后重启 Agent。
 
 ```json
 {
@@ -82,8 +68,6 @@ ReAct 判断需要多步取证时，可进入计划阶段。终端实时显示�
 ```
 
 HTTP 服务器可加 `headers`。本地服务器用 `command`、`args`，可加 `env`、`cwd`。启动后可问「当前有哪些工具？」检查注册结果。
-
-### 本地数据
 
 数据位于仓库根目录的 `.agent-data/`。
 

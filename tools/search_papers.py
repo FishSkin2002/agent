@@ -40,7 +40,7 @@ class SearchPapersTool(Tool):
             return {"error": "query 必须是非空字符串"}
 
         query = query.strip()
-        print(f"检索 arXiv > {query}", file=sys.stderr)
+        print(f"检索 arXiv > {query}", file=sys.stderr, flush=True)
         try:
             papers = self._search_arxiv(query)
         except (arxiv.ArxivError, OSError):

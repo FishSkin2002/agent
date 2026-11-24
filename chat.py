@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import sys
 from collections import deque
@@ -43,6 +44,18 @@ SYSTEM_MESSAGE = {
     ),
 }
 Message = dict[str, Any]
+
+
+def report_progress(stage: str, message: str) -> None:
+    print(f"[{stage}] {message}", file=sys.stderr, flush=True)
+
+
+def read_question() -> str:
+    label = "【 用户 】"
+    if sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and "NO_COLOR" not in os.environ:
+        label = "\x1b[1;30;106m  用户  \x1b[0m"
+    print(f"\n{label} ❯ ", end="", flush=True)
+    return input().strip()
 
 
 def create_tool_registry(memory: MemoryStore, papers: PaperLibrary) -> ToolRegistry:
@@ -155,6 +168,10 @@ def run_turn(
     remaining_calls = MAX_TOOL_CALLS
 
     while True:
+        if remaining_calls == MAX_TOOL_CALLS:
+            report_progress("模型", f"正在等待 {model} 处理问题")
+        else:
+            report_progress("模型", f"正在等待 {model} 处理工具结果")
         message = call_model(url, model, api_key, [SYSTEM_MESSAGE] + history + turn, registry)
         turn.append(message)
         tool_calls = message.get("tool_calls", [])
@@ -175,7 +192,17 @@ def run_turn(
             raise RuntimeError("API 返回了重复的工具调用 ID")
 
         for call, call_id in zip(tool_calls, call_ids):
+            function = call.get("function")
+            name = function.get("name") if isinstance(function, dict) else None
+            tool_name = name if isinstance(name, str) and name.isprintable() else "未知工具"
+            report_progress("工具", f"正在执行 {tool_name}")
             result = registry.invoke(call)
+            if "error" in result or result.get("is_error"):
+                report_progress("工具", f"{tool_name} 返回错误")
+            elif isinstance(papers := result.get("papers"), list):
+                report_progress("工具", f"{tool_name} 返回 {len(papers)} 篇论文")
+            else:
+                report_progress("工具", f"{tool_name} 已返回结果")
             turn.append({
                 "role": "tool",
                 "tool_call_id": call_id,
@@ -187,7 +214,7 @@ def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: Tool
     history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
     while True:
-        question = input("你 > ").strip()
+        question = read_question()
         if question == "/exit":
             return 0
         if not question:
@@ -202,7 +229,7 @@ def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: Tool
             continue
 
         history.append(turn)
-        print(f"助手 > {turn[-1]['content']}")
+        print(f"\n【助手】\n{turn[-1]['content']}")
 
 
 def main() -> int:

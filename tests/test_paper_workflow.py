@@ -88,7 +88,7 @@ class PaperWorkflowTests(unittest.TestCase):
             text_message("HotpotQA 步骤记录"),
             text_message("FEVER 步骤记录"),
             text_message(draft),
-            review_message("HotpotQA 用了 6 个。", "查找 FEVER 示例数量"),
+            review_message(missing_evidence="查找 FEVER 示例数量"),
             tool_message(PASSAGE_TOOL, "fever", query="FEVER examples", paper_id=PAPER_ID),
             text_message(final),
             review_message(),
@@ -162,7 +162,7 @@ class PaperWorkflowTests(unittest.TestCase):
             review_message("HotpotQA 用了 6 个。", "缺少 FEVER 的原文。"),
             tool_message(PASSAGE_TOOL, "retry", query="FEVER demonstrations"),
             text_message("补查后的草稿"),
-            review_message("HotpotQA 用了 6 个。", "缺少 FEVER 的原文。"),
+            review_message(missing_evidence="缺少 FEVER 的原文。"),
         ]
         library = Mock()
         library.search_passages.side_effect = [[{**HOT_POT_QA, "similarity": score}] for score in [0.9, 0.4]]
@@ -171,7 +171,7 @@ class PaperWorkflowTests(unittest.TestCase):
             turn = main.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
         self.assertEqual(model.call_count, 6)
         self.assertIn("补查未取得新证据", self.progress.getvalue())
-        self.assertIn("证据缺口：缺少 FEVER 的原文。", turn[-1]["content"])
+        self.assertEqual(turn[-1]["content"], "已有论文证据不足以给出完整答复。\n\n证据缺口：缺少 FEVER 的原文。")
 
     def test_invalid_review_keeps_a_visible_warning(self):
         responses = [

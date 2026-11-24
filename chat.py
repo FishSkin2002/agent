@@ -6,9 +6,7 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from arxiv import ArxivError
-
-from paper_search import search_papers
+from paper_retrieval import MAX_QUERIES, retrieve_papers
 
 
 MODEL_ENDPOINTS = {
@@ -25,6 +23,8 @@ SYSTEM_MESSAGE = {
     "content": (
         "你是论文检索助手，也可以回答一般概念问题。"
         "用户要求查找论文、提供论文链接或核对原文时，先用 search_papers 检索。"
+        "将问题转换成一条主查询。如关键词可能拼错或有歧义，给出最多两条不同的补充查询，"
+        "可用纠正拼写、补全题名、缩写或近义术语等方式改写。每条查询都应能单独执行。"
         "根据工具返回的摘要回答，并引用结果中的论文链接。"
         "如果检索失败、没有相关结果或摘要不足以支持结论，请如实说明。"
     ),
@@ -39,7 +39,13 @@ SEARCH_TOOL = {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": '英文关键词或 arXiv 查询式，例如 ti:"Synergizing Reasoning and Acting"。',
+                    "description": '主查询，用英文关键词或 arXiv 查询式，例如 ti:"Synergizing Reasoning and Acting"。',
+                },
+                "alternatives": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": MAX_QUERIES - 1,
+                    "description": "补充查询，可填写其他拼写、近义词或不同的关键词组合。",
                 },
             },
             "required": ["query"],
@@ -144,17 +150,23 @@ def execute_tool(call: dict[str, Any]) -> dict[str, Any]:
         arguments = json.loads(function["arguments"])
     except (KeyError, TypeError, ValueError):
         return {"error": "检索参数必须是 JSON 对象"}
-    if not isinstance(arguments, dict) or arguments.keys() != {"query"}:
-        return {"error": "请仅提供 query 参数"}
-    query = arguments["query"]
+    if not isinstance(arguments, dict) or arguments.keys() - {"query", "alternatives"}:
+        return {"error": "请提供 query 和可选的 alternatives 参数"}
+    query = arguments.get("query")
     if not isinstance(query, str) or not query.strip():
         return {"error": "query 必须是非空字符串"}
+    alternatives = arguments.get("alternatives", [])
+    if not isinstance(alternatives, list) or len(alternatives) >= MAX_QUERIES:
+        return {"error": f"alternatives 必须是最多包含 {MAX_QUERIES - 1} 项的数组"}
+    if any(not isinstance(item, str) or not item.strip() for item in alternatives):
+        return {"error": "补充查询必须是非空字符串"}
 
-    print(f"检索 arXiv > {query}", file=sys.stderr)
+    queries = [query, *alternatives]
+    print("检索 arXiv > " + " | ".join(queries), file=sys.stderr)
     try:
-        return {"papers": search_papers(query)}
-    except (ArxivError, OSError):
-        return {"error": "arXiv 检索失败，可以稍后重试"}
+        return retrieve_papers(queries)
+    except ValueError as error:
+        return {"error": str(error)}
 
 
 def run_turn(

@@ -4,7 +4,7 @@ import unittest
 from contextlib import redirect_stderr
 from unittest.mock import Mock, patch
 
-import chat
+import main
 from tools.create_plan import CreatePlanTool
 from tools.registry import ToolRegistry
 from tools.search_paper_passages import SearchPaperPassagesTool
@@ -65,8 +65,8 @@ class PaperWorkflowTests(unittest.TestCase):
         library.search_passages.side_effect = [[HOT_POT_QA], [FEVER]]
         passage_tool = SearchPaperPassagesTool(library)
         self.registry.register(passage_tool)
-        with patch.object(chat, "call_model", side_effect=model_response):
-            turn = chat.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
+        with patch.object(main, "call_model", side_effect=model_response):
+            turn = main.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
 
         self.assertEqual(len(seen), len(responses))
         self.assertIn(CreatePlanTool.name, seen[0][1])
@@ -103,10 +103,10 @@ class PaperWorkflowTests(unittest.TestCase):
         library = Mock(search_passages=passages)
         self.registry.register(SearchPaperPassagesTool(library))
         with (
-            patch.object(chat, "MAX_TOOL_CALLS", 2),
-            patch.object(chat, "call_model", side_effect=responses) as model,
+            patch.object(main, "MAX_TOOL_CALLS", 2),
+            patch.object(main, "call_model", side_effect=responses) as model,
         ):
-            turn = chat.run_turn("unused", "glm-4.7-flash", "test-key", [], QUESTION, self.registry)
+            turn = main.run_turn("unused", "glm-4.7-flash", "test-key", [], QUESTION, self.registry)
         self.assertEqual(model.call_count, 5)
         self.assertEqual(model.call_args_list[1].args[-1].definitions(), [])
         passages.assert_called_once_with("hotpotqa", None)
@@ -126,8 +126,8 @@ class PaperWorkflowTests(unittest.TestCase):
         library = Mock()
         library.search_passages.side_effect = [[{**HOT_POT_QA, "similarity": score}] for score in [0.9, 0.4]]
         self.registry.register(SearchPaperPassagesTool(library))
-        with patch.object(chat, "call_model", side_effect=responses) as model:
-            turn = chat.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
+        with patch.object(main, "call_model", side_effect=responses) as model:
+            turn = main.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
         self.assertEqual(model.call_count, 6)
         self.assertIn("补查未取得新证据", self.progress.getvalue())
         self.assertIn("证据缺口：缺少 FEVER 的原文。", turn[-1]["content"])
@@ -139,6 +139,6 @@ class PaperWorkflowTests(unittest.TestCase):
             text_message("未按格式提供复核结果。"),
         ]
         self.registry.register(SearchPaperPassagesTool(Mock(search_passages=Mock(return_value=[HOT_POT_QA]))))
-        with patch.object(chat, "call_model", side_effect=responses):
-            turn = chat.run_turn("unused", "glm-4.7-flash", "test-key", [], QUESTION, self.registry)
+        with patch.object(main, "call_model", side_effect=responses):
+            turn = main.run_turn("unused", "glm-4.7-flash", "test-key", [], QUESTION, self.registry)
         self.assertIn("本轮未完成证据复核", turn[-1]["content"])

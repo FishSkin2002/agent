@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import chat
+import main
 from memory import MemoryStore
 from tools.registry import ToolRegistry
 
@@ -50,13 +50,13 @@ class ChatProgressTests(unittest.TestCase):
             path = Path(directory) / "memory.sqlite3"
             with (
                 closing(MemoryStore(path)) as memory,
-                patch.object(chat, "call_model", side_effect=model_response),
+                patch.object(main, "call_model", side_effect=model_response),
                 patch.object(registry, "invoke", side_effect=tool_response),
                 patch("builtins.input", side_effect=[f"搜索 {query}", "/exit"]),
                 redirect_stdout(output),
                 redirect_stderr(progress),
             ):
-                self.assertEqual(chat.chat("ignored", "deepseek-flash", "test-key", memory, registry), 0)
+                self.assertEqual(main.chat("ignored", "deepseek-flash", "test-key", memory, registry), 0)
 
         self.assertIn("【 用户 】 ❯", output.getvalue())
         self.assertIn("【 助手 】 ❯ 这次没有搜到论文。", output.getvalue())

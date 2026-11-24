@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import chat
+import main
 from tools.mcp_client import MCPConfigError, register_mcp_tools
 from tools.registry import ToolRegistry
 
@@ -76,13 +76,13 @@ class MCPToolTests(unittest.TestCase):
                 return {"role": "assistant", "content": "MCP result received"}
 
             with (
-                patch.object(chat, "__file__", str(directory / "chat.py")),
-                patch.object(chat, "call_model", side_effect=next_message) as model,
+                patch.object(main, "__file__", str(directory / "main.py")),
+                patch.object(main, "call_model", side_effect=next_message) as model,
                 patch("builtins.input", side_effect=["请测试 echo 工具", "/exit"]),
                 redirect_stdout(io.StringIO()) as output,
                 redirect_stderr(io.StringIO()) as errors,
             ):
-                self.assertEqual(chat.main(), 0)
+                self.assertEqual(main.main(), 0)
                 self.assertEqual(model.call_count, 3)
                 self.assertIn("MCP result received", output.getvalue())
                 self.assertIn("MCP missing 连接失败", errors.getvalue())

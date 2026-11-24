@@ -89,7 +89,7 @@ def load_config(path: Path) -> tuple[str, str, str, int]:
     try:
         lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as error:
-        raise ValueError("请在 chat.py 同目录准备可读的 UTF-8 格式 .env 文件。") from error
+        raise ValueError("请在 main.py 同目录准备可读的 UTF-8 格式 .env 文件。") from error
 
     values = {}
     for line in lines:

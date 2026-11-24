@@ -44,7 +44,7 @@ python -m pip install -r requirements.txt
 
 模型自主决定直接回答或调用工具。输入“请用工具查看你当前有哪些工具”，可以让模型通过 `list_tools` 查询工具名、用途和参数。
 
-新增工具时继承 `Tool`，填写名称、描述和参数定义，实现 `run()` 并在注册表中加入实例。模型根据工具自身的描述和参数挑选工具。
+工具模块与模型使用的名称对应。例如 `tools/search_papers.py` 提供 `SearchPapersTool`。新增工具时继承 `Tool`，定义名称、描述和参数，实现 `run()`，再在 `chat.py` 中用 `ToolRegistry.register()` 注册实例。模型根据工具自身的描述和参数挑选工具。
 
 在仓库根目录准备 `.env`，选择模型并填入对应服务的密钥。例如使用 DeepSeek 时填写如下。
 

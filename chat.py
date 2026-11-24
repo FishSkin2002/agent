@@ -6,7 +6,9 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from tools.registry import execute_tool, tool_definitions
+from tools.list_tools import ListToolsTool
+from tools.registry import ToolRegistry
+from tools.search_papers import SearchPapersTool
 
 
 MODEL_ENDPOINTS = {
@@ -27,6 +29,10 @@ SYSTEM_MESSAGE = {
     ),
 }
 Message = dict[str, Any]
+
+tool_registry = ToolRegistry()
+tool_registry.register(ListToolsTool(tool_registry))
+tool_registry.register(SearchPapersTool())
 
 
 def load_config(path: Path) -> tuple[str, str, str]:
@@ -70,7 +76,7 @@ def call_model(url: str, model: str, api_key: str, messages: list[Message]) -> M
         "stream": False,
         "thinking": {"type": "disabled"},
         "max_tokens": 1024,
-        "tools": tool_definitions(),
+        "tools": tool_registry.definitions(),
         "tool_choice": "auto",
     }
     request = Request(
@@ -139,7 +145,7 @@ def run_turn(
             raise RuntimeError("API 返回了重复的工具调用 ID")
 
         for call, call_id in zip(tool_calls, call_ids):
-            result = execute_tool(call)
+            result = tool_registry.invoke(call)
             turn.append({
                 "role": "tool",
                 "tool_call_id": call_id,

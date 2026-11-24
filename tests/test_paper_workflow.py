@@ -60,7 +60,9 @@ class PaperWorkflowTests(unittest.TestCase):
             patch("builtins.input", side_effect=[QUESTION, follow_up, "/exit"]),
             patch.object(main, "call_model", side_effect=responses) as model,
         ):
-            self.assertEqual(main.chat("unused", "deepseek-flash", "test-key", memory, self.registry), 0)
+            self.assertEqual(
+                main.chat("unused", "deepseek-flash", "test-key", memory, self.registry, max_output_tokens=3072), 0,
+            )
 
         previous_dialogue = [{"role": "user", "content": QUESTION}, text_message(answer)]
         self.assertEqual(model.call_args_list[3].args[3][1:], [
@@ -70,6 +72,7 @@ class PaperWorkflowTests(unittest.TestCase):
         self.assertEqual(current_result["tool_call_id"], "follow-up")
         self.assertEqual(json.loads(current_result["content"]), {"passages": [FEVER]})
         review_input = json.loads(model.call_args_list[5].args[3][-1]["content"])
+        self.assertEqual(model.call_args_list[5].kwargs["max_tokens"], 3072)
         self.assertEqual(review_input["recent_history"], previous_dialogue)
         self.assertEqual(review_input["retrieval_results"], [
             {"tool": PASSAGE_TOOL, "result": {"passages": [FEVER]}},

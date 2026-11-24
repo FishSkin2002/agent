@@ -29,10 +29,15 @@ conda activate agent
 
 `chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。
 
-在仓库根目录的 `.env` 中按 `变量名=密钥` 格式填写一项，另一项留空。
+在仓库根目录准备 `.env`，选择模型并填入对应服务的密钥。例如使用 DeepSeek 时填写如下。
 
-- `GLM_API_KEY` 使用智谱开放平台通用 API Key，模型为 `glm-4.7-flash`。
-- `DEEPSEEK_API_KEY` 使用 DeepSeek API Key，模型为 `deepseek-flash`。
+```dotenv
+MODEL=deepseek-flash
+API_KEY=你的_API_Key
+```
+
+- `MODEL=deepseek-flash` 使用 DeepSeek API Key。
+- `MODEL=glm-4.7-flash` 使用智谱开放平台通用 API Key。
 
 ```bash
 python chat.py

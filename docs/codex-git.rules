@@ -3,7 +3,7 @@ prefix_rule(
     pattern = ["/usr/bin/python3", "-I", "-S", "/mnt/c/Users/yunli/.codex/bin/myagent-git-workflow.py"],
     decision = "allow",
     match = ["/usr/bin/python3 -I -S /mnt/c/Users/yunli/.codex/bin/myagent-git-workflow.py commit -m Example"],
-    not_match = ["python3 tools/git_workflow.py commit -m Example"],
+    not_match = ["python3 scripts/git/git_workflow.py commit -m Example"],
 )
 prefix_rule(
     pattern = ["git", "-C", "/home/yunli/code/myAgent", "add", "--"],

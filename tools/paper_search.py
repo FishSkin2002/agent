@@ -1,6 +1,3 @@
-import argparse
-import json
-
 import arxiv
 
 
@@ -28,22 +25,3 @@ def search_papers(query: str) -> list[dict[str, str | list[str] | None]]:
             "journal_ref": result.journal_ref,
         })
     return papers
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="在 arXiv 上检索论文并输出 JSON。")
-    parser.add_argument("query", help="检索关键词或 arXiv 查询式")
-    args = parser.parse_args()
-
-    try:
-        papers = search_papers(args.query)
-    except ValueError as error:
-        parser.error(str(error))
-    except (arxiv.ArxivError, OSError) as error:
-        parser.exit(1, f"arXiv 检索失败（{error}）\n")
-
-    print(json.dumps(papers, ensure_ascii=False, indent=2))
-
-
-if __name__ == "__main__":
-    main()

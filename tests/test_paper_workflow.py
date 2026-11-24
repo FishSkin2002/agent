@@ -78,13 +78,16 @@ class PaperWorkflowTests(unittest.TestCase):
         self.assertEqual(review_input["retrieval_results"], [
             {"tool": PASSAGE_TOOL, "result": {"passages": [FEVER]}},
         ])
+        self.assertNotIn("[计划]", self.progress.getvalue())
 
     def test_plan_advances_steps_before_review_and_supplements_with_existing_evidence(self):
         steps = ["核对 HotpotQA 的示例数", "核对 FEVER 的示例数"]
+        first_line, second_line = f"1. {steps[0]}\n", f"2. {steps[1]}"
         draft = f"HotpotQA 有 6 个示例（{PAGE_URL}），FEVER 待核实。"
         final = f"HotpotQA 用了 6 个，FEVER 用了 3 个。见 ReAct v3 第 4 页（{PAGE_URL}）。"
         responses = [
-            tool_message(CreatePlanTool.name, "plan", steps=steps),
+            tool_message(CreatePlanTool.name, "plan"),
+            text_message(first_line + second_line),
             tool_message(PASSAGE_TOOL, "hotpotqa", query="HotpotQA examples", paper_id=PAPER_ID),
             text_message("HotpotQA 步骤记录"),
             text_message("FEVER 步骤记录"),
@@ -100,6 +103,14 @@ class PaperWorkflowTests(unittest.TestCase):
             names = [definition["function"]["name"] for definition in registry.definitions()]
             index = len(seen)
             seen.append((messages, names, kwargs))
+            if index == 1:
+                self.assertTrue(self.progress.getvalue().endswith("[计划] 正在制定本轮计划\n"))
+                kwargs["on_text"](first_line)
+                self.assertTrue(self.progress.getvalue().endswith(first_line))
+                kwargs["on_text"](second_line)
+                self.assertTrue(self.progress.getvalue().endswith(first_line + second_line))
+            if index == 2:
+                self.assertIn(first_line + second_line + "\n", self.progress.getvalue())
             return responses[index]
 
         library = Mock()
@@ -112,14 +123,16 @@ class PaperWorkflowTests(unittest.TestCase):
 
         self.assertEqual(len(seen), len(responses))
         self.assertIn(CreatePlanTool.name, seen[0][1])
-        self.assertEqual(seen[6][1], [PASSAGE_TOOL])
-        self.assertEqual(seen[5][1], [])
-        self.assertIn(steps[0], seen[1][0][-1]["content"])
-        self.assertIn(steps[1], seen[3][0][-1]["content"])
-        self.assertIn("HotpotQA 步骤记录", seen[4][0][-1]["content"])
-        self.assertIn("查找 FEVER 示例数量", seen[6][0][-1]["content"])
-        self.assertEqual(json.loads(seen[6][0][-2]["content"]), {"passages": [HOT_POT_QA]})
-        self.assertEqual(json.loads(seen[8][0][-1]["content"])["retrieval_results"], [
+        self.assertEqual(seen[1][1], [])
+        self.assertEqual(seen[1][0][-1]["content"], QUESTION)
+        self.assertEqual(seen[7][1], [PASSAGE_TOOL])
+        self.assertEqual(seen[6][1], [])
+        self.assertIn(steps[0], seen[2][0][-1]["content"])
+        self.assertIn(steps[1], seen[4][0][-1]["content"])
+        self.assertIn("HotpotQA 步骤记录", seen[5][0][-1]["content"])
+        self.assertIn("查找 FEVER 示例数量", seen[7][0][-1]["content"])
+        self.assertEqual(json.loads(seen[7][0][-2]["content"]), {"passages": [HOT_POT_QA]})
+        self.assertEqual(json.loads(seen[9][0][-1]["content"])["retrieval_results"], [
             {"tool": PASSAGE_TOOL, "result": {"passages": [HOT_POT_QA]}},
             {"tool": PASSAGE_TOOL, "result": {"passages": [FEVER]}},
         ])
@@ -134,14 +147,20 @@ class PaperWorkflowTests(unittest.TestCase):
         self.assertIn("[复核] 正在补查", self.progress.getvalue())
 
     def test_budget_counts_plan_alongside_paper_tools_and_caps_a_batch(self):
-        batch = tool_message(CreatePlanTool.name, "plan", steps=["核对 HotpotQA", "核对 FEVER"])
+        batch = tool_message(CreatePlanTool.name, "plan")
         for call_id in ["hotpotqa", "fever"]:
             batch["tool_calls"] += tool_message(PASSAGE_TOOL, call_id, query=call_id)["tool_calls"]
+        plan = "1. 核对 HotpotQA\n2. 核对 FEVER"
         responses = [
-            batch, text_message("步骤一"), text_message("步骤二"), text_message("草稿"),
+            batch, text_message(plan), text_message("步骤一"), text_message("步骤二"), text_message("草稿"),
             review_message("HotpotQA 用了 6 个。", "缺少 FEVER 的原文。"),
         ]
-        passages = Mock(return_value=[HOT_POT_QA])
+
+        def search_passages(query, paper_id):
+            self.assertIn(plan + "\n", self.progress.getvalue())
+            return [HOT_POT_QA]
+
+        passages = Mock(side_effect=search_passages)
         library = Mock(search_passages=passages)
         self.registry.register(SearchPaperPassagesTool(library))
         output = io.StringIO()
@@ -158,10 +177,10 @@ class PaperWorkflowTests(unittest.TestCase):
                 redirect_stdout(output),
             ):
                 self.assertEqual(main.main(), 0)
-        self.assertEqual(model.call_count, 5)
-        self.assertEqual(model.call_args_list[1].args[-1].definitions(), [])
+        self.assertEqual(model.call_count, 6)
+        self.assertEqual(model.call_args_list[2].args[-1].definitions(), [])
         passages.assert_called_once_with("hotpotqa", None)
-        step_request = model.call_args_list[1].args[3]
+        step_request = model.call_args_list[2].args[3]
         skipped = next(message for message in step_request if message.get("tool_call_id") == "fever")
         self.assertIn("未执行此调用", skipped["content"])
         self.assertIn("证据缺口：缺少 FEVER 的原文。", output.getvalue())

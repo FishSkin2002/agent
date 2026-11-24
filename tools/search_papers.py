@@ -4,6 +4,7 @@ from typing import Any
 import arxiv
 
 from .base import Tool
+from .paper_library import Paper, PaperLibrary
 
 
 class SearchPapersTool(Tool):
@@ -12,6 +13,7 @@ class SearchPapersTool(Tool):
     name = "search_papers"
     description = (
         "用一条查询检索 arXiv，返回论文标题、作者、摘要和版本链接。"
+        "检索结果会保存到论文知识库。"
         "如果结果为空或证据不足，可以根据返回结果改写查询，再次调用本工具。"
     )
     parameters = {
@@ -26,7 +28,8 @@ class SearchPapersTool(Tool):
         "additionalProperties": False,
     }
 
-    def __init__(self) -> None:
+    def __init__(self, library: PaperLibrary) -> None:
+        self._library = library
         self._client = arxiv.Client(page_size=self._MAX_RESULTS)
 
     def run(self, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -39,13 +42,15 @@ class SearchPapersTool(Tool):
         query = query.strip()
         print(f"检索 arXiv > {query}", file=sys.stderr)
         try:
-            return {"papers": self._search_arxiv(query)}
+            papers = self._search_arxiv(query)
         except (arxiv.ArxivError, OSError):
             return {"error": "arXiv 检索失败，可以稍后重试"}
         except ValueError as error:
             return {"error": str(error)}
+        self._library.save_papers(papers)
+        return {"papers": papers}
 
-    def _search_arxiv(self, query: str) -> list[dict[str, str | list[str] | None]]:
+    def _search_arxiv(self, query: str) -> list[Paper]:
         search = arxiv.Search(query=query, max_results=self._MAX_RESULTS)
         papers = []
         for result in self._client.results(search):

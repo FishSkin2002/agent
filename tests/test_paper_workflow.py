@@ -3,6 +3,7 @@ import json
 import unittest
 from contextlib import closing, redirect_stderr, redirect_stdout
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 import main
@@ -143,17 +144,35 @@ class PaperWorkflowTests(unittest.TestCase):
         passages = Mock(return_value=[HOT_POT_QA])
         library = Mock(search_passages=passages)
         self.registry.register(SearchPaperPassagesTool(library))
-        with (
-            patch.object(main, "MAX_TOOL_CALLS", 2),
-            patch.object(main, "call_model", side_effect=responses) as model,
-        ):
-            turn = main.run_turn("unused", "glm-4.7-flash", "test-key", [], QUESTION, self.registry)
+        output = io.StringIO()
+        with TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / ".env").write_text(
+                "MODEL=glm-4.7-flash\nAPI_KEY=test-key\nMAX_TOOL_CALLS=2\n", encoding="utf-8",
+            )
+            with (
+                patch.object(main, "__file__", str(project / "main.py")),
+                patch.object(main, "create_tool_registry", return_value=self.registry),
+                patch.object(main, "call_model", side_effect=responses) as model,
+                patch("builtins.input", side_effect=[QUESTION, "/exit"]),
+                redirect_stdout(output),
+            ):
+                self.assertEqual(main.main(), 0)
         self.assertEqual(model.call_count, 5)
         self.assertEqual(model.call_args_list[1].args[-1].definitions(), [])
         passages.assert_called_once_with("hotpotqa", None)
-        skipped = next(message for message in turn if message.get("tool_call_id") == "fever")
+        step_request = model.call_args_list[1].args[3]
+        skipped = next(message for message in step_request if message.get("tool_call_id") == "fever")
         self.assertIn("未执行此调用", skipped["content"])
-        self.assertIn("证据缺口：缺少 FEVER 的原文。", turn[-1]["content"])
+        self.assertIn("证据缺口：缺少 FEVER 的原文。", output.getvalue())
+
+    def test_zero_tool_budget_allows_only_text_reply(self):
+        self.registry.register(SearchPaperPassagesTool(Mock()))
+        with patch.object(main, "call_model", return_value=text_message("你好。")) as model:
+            turn = main.run_turn("unused", "deepseek-flash", "test-key", [], "你好", self.registry, max_tool_calls=0)
+        model.assert_called_once()
+        self.assertEqual(model.call_args.args[-1].definitions(), [])
+        self.assertEqual(turn[-1], text_message("你好。"))
 
     def test_repeated_passage_with_different_similarity_stops_supplementing(self):
         responses = [

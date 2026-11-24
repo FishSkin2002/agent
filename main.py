@@ -30,7 +30,7 @@ LEGACY_KEY_MODELS = {
     "GLM_API_KEY": "glm-4.7-flash",
     "DEEPSEEK_API_KEY": "deepseek-flash",
 }
-MAX_TOOL_CALLS = 10
+DEFAULT_MAX_TOOL_CALLS = 10
 PAPER_TOOLS = {SearchPapersTool.name, SearchPaperLibraryTool.name, SearchPaperPassagesTool.name}
 SYSTEM_MESSAGE = {
     "role": "system",
@@ -98,7 +98,7 @@ def create_tool_registry(memory: MemoryStore, papers: PaperLibrary) -> ToolRegis
     return registry
 
 
-def load_config(path: Path) -> tuple[str, str, str, int, int]:
+def load_config(path: Path) -> tuple[str, str, str, int, int, int]:
     try:
         lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as error:
@@ -141,7 +141,13 @@ def load_config(path: Path) -> tuple[str, str, str, int, int]:
         raise ValueError("请在 .env 的 MAX_OUTPUT_TOKENS 中填写正整数。") from error
     if max_output_tokens < 1:
         raise ValueError("请在 .env 的 MAX_OUTPUT_TOKENS 中填写正整数。")
-    return MODEL_ENDPOINTS[model], model, api_key, short_term_turns, max_output_tokens
+    try:
+        max_tool_calls = int(values.get("MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS))
+    except ValueError as error:
+        raise ValueError("请在 .env 的 MAX_TOOL_CALLS 中填写非负整数。") from error
+    if max_tool_calls < 0:
+        raise ValueError("请在 .env 的 MAX_TOOL_CALLS 中填写非负整数。")
+    return MODEL_ENDPOINTS[model], model, api_key, short_term_turns, max_output_tokens, max_tool_calls
 
 
 def _execute_tools(message: Message, registry: ToolRegistry, state: TurnState) -> None:
@@ -293,9 +299,10 @@ def _review_draft(
 
 def run_turn(
     url: str, model: str, api_key: str, history: list[Message], question: str, registry: ToolRegistry, *,
-    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS, output: AssistantReply | None = None,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS, max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
+    output: AssistantReply | None = None,
 ) -> list[Message]:
-    state = TurnState([{"role": "user", "content": question}], MAX_TOOL_CALLS)
+    state = TurnState([{"role": "user", "content": question}], max_tool_calls)
     plan = CreatePlanTool()
     with registry.temporary(plan):
         draft = _run_react(
@@ -344,7 +351,7 @@ def run_turn(
 
 def chat(
     url: str, model: str, api_key: str, memory: MemoryStore, registry: ToolRegistry, *,
-    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS, max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
 ) -> int:
     history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
@@ -365,7 +372,7 @@ def chat(
             with memory.turn():
                 turn = run_turn(
                     url, model, api_key, recent_dialogue, question, registry,
-                    max_output_tokens=max_output_tokens, output=output,
+                    max_output_tokens=max_output_tokens, max_tool_calls=max_tool_calls, output=output,
                 )
         except (RuntimeError, sqlite3.Error) as error:
             output.end_stream()
@@ -381,7 +388,7 @@ def chat(
 def main() -> int:
     project_dir = Path(__file__).parent
     try:
-        url, model, api_key, short_term_turns, max_output_tokens = load_config(project_dir / ".env")
+        url, model, api_key, short_term_turns, max_output_tokens, max_tool_calls = load_config(project_dir / ".env")
     except ValueError as error:
         print(error, file=sys.stderr)
         return 1
@@ -402,7 +409,9 @@ def main() -> int:
         except MCPConfigError as error:
             print(error, file=sys.stderr)
             return 1
-        return chat(url, model, api_key, memory, registry, max_output_tokens=max_output_tokens)
+        return chat(
+            url, model, api_key, memory, registry, max_output_tokens=max_output_tokens, max_tool_calls=max_tool_calls,
+        )
 
 
 if __name__ == "__main__":

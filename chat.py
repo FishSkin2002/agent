@@ -6,7 +6,7 @@ from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from tools.paper_retrieval import MAX_QUERIES, retrieve_papers
+from tools.registry import execute_tool, tool_definitions
 
 
 MODEL_ENDPOINTS = {
@@ -22,38 +22,15 @@ SYSTEM_MESSAGE = {
     "role": "system",
     "content": (
         "你是论文检索助手，也可以回答一般概念问题。"
-        "用户要求查找论文、提供论文链接或核对原文时，先用 search_papers 检索。"
-        "将问题转换成一条主查询。如关键词可能拼错或有歧义，给出最多两条不同的补充查询，"
+        "根据问题决定直接回答还是调用工具。需要了解当前可用工具时，可以调用 list_tools。"
+        "需要在线查找论文或核对证据时，可以调用 search_papers。"
+        "调用论文检索工具时，将问题转换成一条主查询。"
+        "如关键词可能拼错或有歧义，给出最多两条不同的补充查询，"
         "可用纠正拼写、补全题名、缩写或近义术语等方式改写。每条查询都应能单独执行。"
         "根据工具返回的摘要回答，并引用结果中的论文链接。"
         "如果检索失败、没有相关结果或摘要不足以支持结论，请如实说明。"
     ),
 }
-SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "search_papers",
-        "description": "在线检索 arXiv 论文，返回标题、作者、摘要和版本链接。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": '主查询，用英文关键词或 arXiv 查询式，例如 ti:"Synergizing Reasoning and Acting"。',
-                },
-                "alternatives": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "maxItems": MAX_QUERIES - 1,
-                    "description": "补充查询，可填写其他拼写、近义词或不同的关键词组合。",
-                },
-            },
-            "required": ["query"],
-            "additionalProperties": False,
-        },
-    },
-}
-
 Message = dict[str, Any]
 
 
@@ -98,7 +75,8 @@ def call_model(url: str, model: str, api_key: str, messages: list[Message]) -> M
         "stream": False,
         "thinking": {"type": "disabled"},
         "max_tokens": 1024,
-        "tools": [SEARCH_TOOL],
+        "tools": tool_definitions(),
+        "tool_choice": "auto",
     }
     request = Request(
         url,
@@ -137,36 +115,6 @@ def call_model(url: str, model: str, api_key: str, messages: list[Message]) -> M
     if not isinstance(reply, str) or not reply.strip():
         raise RuntimeError("API 未返回完整的文本回复")
     return {"role": "assistant", "content": reply}
-
-
-def execute_tool(call: dict[str, Any]) -> dict[str, Any]:
-    function = call.get("function")
-    if call.get("type") != "function" or not isinstance(function, dict):
-        return {"error": "无效的函数调用"}
-    if function.get("name") != "search_papers":
-        return {"error": "仅支持 search_papers 工具"}
-
-    try:
-        arguments = json.loads(function["arguments"])
-    except (KeyError, TypeError, ValueError):
-        return {"error": "检索参数必须是 JSON 对象"}
-    if not isinstance(arguments, dict) or arguments.keys() - {"query", "alternatives"}:
-        return {"error": "请提供 query 和可选的 alternatives 参数"}
-    query = arguments.get("query")
-    if not isinstance(query, str) or not query.strip():
-        return {"error": "query 必须是非空字符串"}
-    alternatives = arguments.get("alternatives", [])
-    if not isinstance(alternatives, list) or len(alternatives) >= MAX_QUERIES:
-        return {"error": f"alternatives 必须是最多包含 {MAX_QUERIES - 1} 项的数组"}
-    if any(not isinstance(item, str) or not item.strip() for item in alternatives):
-        return {"error": "补充查询必须是非空字符串"}
-
-    queries = [query, *alternatives]
-    print("检索 arXiv > " + " | ".join(queries), file=sys.stderr)
-    try:
-        return retrieve_papers(queries)
-    except ValueError as error:
-        return {"error": str(error)}
 
 
 def run_turn(

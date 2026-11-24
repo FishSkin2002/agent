@@ -1,4 +1,5 @@
 import re
+import sys
 from itertools import zip_longest
 from typing import Any
 
@@ -37,3 +38,23 @@ def retrieve_papers(queries: list[str]) -> dict[str, Any]:
             papers_by_id.setdefault(paper_id, paper)
 
     return {"papers": list(papers_by_id.values())[:MAX_RESULTS], "failed_queries": failed_queries}
+
+
+def search_papers_tool(arguments: dict[str, Any]) -> dict[str, Any]:
+    if arguments.keys() - {"query", "alternatives"}:
+        return {"error": "请提供 query 和可选的 alternatives 参数"}
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return {"error": "query 必须是非空字符串"}
+    alternatives = arguments.get("alternatives", [])
+    if not isinstance(alternatives, list) or len(alternatives) >= MAX_QUERIES:
+        return {"error": f"alternatives 必须是最多包含 {MAX_QUERIES - 1} 项的数组"}
+    if any(not isinstance(item, str) or not item.strip() for item in alternatives):
+        return {"error": "补充查询必须是非空字符串"}
+
+    queries = [query, *alternatives]
+    print("检索 arXiv > " + " | ".join(queries), file=sys.stderr)
+    try:
+        return retrieve_papers(queries)
+    except ValueError as error:
+        return {"error": str(error)}

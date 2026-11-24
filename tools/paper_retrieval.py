@@ -5,6 +5,7 @@ from typing import Any
 
 from arxiv import ArxivError
 
+from .base import Tool
 from .paper_search import MAX_RESULTS, search_papers
 
 
@@ -40,21 +41,45 @@ def retrieve_papers(queries: list[str]) -> dict[str, Any]:
     return {"papers": list(papers_by_id.values())[:MAX_RESULTS], "failed_queries": failed_queries}
 
 
-def search_papers_tool(arguments: dict[str, Any]) -> dict[str, Any]:
-    if arguments.keys() - {"query", "alternatives"}:
-        return {"error": "请提供 query 和可选的 alternatives 参数"}
-    query = arguments.get("query")
-    if not isinstance(query, str) or not query.strip():
-        return {"error": "query 必须是非空字符串"}
-    alternatives = arguments.get("alternatives", [])
-    if not isinstance(alternatives, list) or len(alternatives) >= MAX_QUERIES:
-        return {"error": f"alternatives 必须是最多包含 {MAX_QUERIES - 1} 项的数组"}
-    if any(not isinstance(item, str) or not item.strip() for item in alternatives):
-        return {"error": "补充查询必须是非空字符串"}
+class SearchPapers(Tool):
+    name = "search_papers"
+    description = (
+        "在线查找 arXiv 论文，返回标题、作者、摘要和版本链接。"
+        "题名或术语可能拼错或有歧义时，提供一到两条补充查询以覆盖不同写法。"
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": '将问题转换为英文关键词或 arXiv 查询式，例如 ti:"Synergizing Reasoning and Acting"。',
+            },
+            "alternatives": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": MAX_QUERIES - 1,
+                "description": "可独立检索的补充查询，可用纠正后的拼写、近义词、缩写或补全的题名。",
+            },
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    }
 
-    queries = [query, *alternatives]
-    print("检索 arXiv > " + " | ".join(queries), file=sys.stderr)
-    try:
-        return retrieve_papers(queries)
-    except ValueError as error:
-        return {"error": str(error)}
+    def run(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        if arguments.keys() - {"query", "alternatives"}:
+            return {"error": "请提供 query 和可选的 alternatives 参数"}
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query.strip():
+            return {"error": "query 必须是非空字符串"}
+        alternatives = arguments.get("alternatives", [])
+        if not isinstance(alternatives, list) or len(alternatives) >= MAX_QUERIES:
+            return {"error": f"alternatives 必须是最多包含 {MAX_QUERIES - 1} 项的数组"}
+        if any(not isinstance(item, str) or not item.strip() for item in alternatives):
+            return {"error": "补充查询必须是非空字符串"}
+
+        queries = [query, *alternatives]
+        print("检索 arXiv > " + " | ".join(queries), file=sys.stderr)
+        try:
+            return retrieve_papers(queries)
+        except ValueError as error:
+            return {"error": str(error)}

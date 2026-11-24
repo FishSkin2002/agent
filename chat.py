@@ -6,9 +6,13 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
-PROVIDERS = {
-    "GLM_API_KEY": ("https://open.bigmodel.cn/api/paas/v4/chat/completions", "glm-4.7-flash"),
-    "DEEPSEEK_API_KEY": ("https://api.deepseek.com/chat/completions", "deepseek-flash"),
+MODEL_ENDPOINTS = {
+    "glm-4.7-flash": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "deepseek-flash": "https://api.deepseek.com/chat/completions",
+}
+LEGACY_KEY_MODELS = {
+    "GLM_API_KEY": "glm-4.7-flash",
+    "DEEPSEEK_API_KEY": "deepseek-flash",
 }
 
 
@@ -27,13 +31,23 @@ def load_config(path: Path) -> tuple[str, str, str]:
         if separator:
             values[name.strip()] = value.strip()
 
-    configured_keys = [name for name in PROVIDERS if values.get(name)]
-    if len(configured_keys) != 1:
-        raise ValueError("请在 .env 中填写 GLM_API_KEY 或 DEEPSEEK_API_KEY，并将另一项留空。")
+    model = values.get("MODEL", "")
+    api_key = values.get("API_KEY", "")
 
-    key_name = configured_keys[0]
-    url, model = PROVIDERS[key_name]
-    return url, model, values[key_name]
+    # 已有 .env 只填了一个旧密钥时，继续使用该密钥对应的模型。
+    if "MODEL" not in values and "API_KEY" not in values:
+        legacy_keys = [name for name in LEGACY_KEY_MODELS if values.get(name)]
+        if len(legacy_keys) == 1:
+            key_name = legacy_keys[0]
+            model = LEGACY_KEY_MODELS[key_name]
+            api_key = values[key_name]
+
+    if model not in MODEL_ENDPOINTS:
+        supported_models = "、".join(MODEL_ENDPOINTS)
+        raise ValueError(f"请在 .env 的 MODEL 中选择 {supported_models}。")
+    if not api_key:
+        raise ValueError("请在 .env 的 API_KEY 中填写所选模型对应的密钥。")
+    return MODEL_ENDPOINTS[model], model, api_key
 
 
 def call_model(url: str, model: str, api_key: str, messages: list[dict[str, str]]) -> str:

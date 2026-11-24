@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import chat
+import main
 from memory import MemoryStore
 
 
@@ -84,14 +84,14 @@ class MemoryStoreTests(unittest.TestCase):
                 {"role": "assistant", "content": "已淘汰这条偏好。"},
             ]
             with (
-                patch.object(chat, "__file__", str(project_dir / "chat.py")),
-                patch.object(chat, "call_model", side_effect=responses) as model,
+                patch.object(main, "__file__", str(project_dir / "main.py")),
+                patch.object(main, "call_model", side_effect=responses) as model,
                 patch("builtins.input", side_effect=[questions[0], "/exit", *questions[1:], "/exit"]),
                 redirect_stdout(io.StringIO()),
                 redirect_stderr(io.StringIO()) as errors,
             ):
-                self.assertEqual(chat.main(), 0)
-                self.assertEqual(chat.main(), 0)
+                self.assertEqual(main.main(), 0)
+                self.assertEqual(main.main(), 0)
                 self.assertNotIn("调用失败", errors.getvalue())
 
             first_tool_results = model.call_args_list[1].args[3][-2:]

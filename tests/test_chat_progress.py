@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-import chat
+import main
 from memory import MemoryStore
 from tools.registry import ToolRegistry
 
@@ -17,7 +17,11 @@ class ChatProgressTests(unittest.TestCase):
         output = io.StringIO()
         query = 'ti:"On-Policy Self-Distillation"'
 
-        def model_response(url, model, api_key, messages, registry):
+        def model_response(url, model, api_key, messages, registry, *, max_tokens=1024):
+            if not registry.definitions():
+                self.assertIn("正在核对答复与论文证据", progress.getvalue())
+                self.assertEqual(json.loads(messages[-1]["content"])["draft"], "这次没有搜到论文。")
+                return {"role": "assistant", "content": '{"answer":"", "missing_evidence":""}'}
             if messages[-1]["role"] == "user":
                 self.assertIn("正在等待 deepseek-flash 处理问题", progress.getvalue())
                 return {
@@ -46,13 +50,13 @@ class ChatProgressTests(unittest.TestCase):
             path = Path(directory) / "memory.sqlite3"
             with (
                 closing(MemoryStore(path)) as memory,
-                patch.object(chat, "call_model", side_effect=model_response),
+                patch.object(main, "call_model", side_effect=model_response),
                 patch.object(registry, "invoke", side_effect=tool_response),
                 patch("builtins.input", side_effect=[f"搜索 {query}", "/exit"]),
                 redirect_stdout(output),
                 redirect_stderr(progress),
             ):
-                self.assertEqual(chat.chat("ignored", "deepseek-flash", "test-key", memory, registry), 0)
+                self.assertEqual(main.chat("ignored", "deepseek-flash", "test-key", memory, registry), 0)
 
         self.assertIn("【 用户 】 ❯", output.getvalue())
         self.assertIn("【 助手 】 ❯ 这次没有搜到论文。", output.getvalue())

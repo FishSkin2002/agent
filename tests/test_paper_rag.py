@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from chat import create_tool_registry
+from main import create_tool_registry
 from memory import MemoryStore
 from tools.paper_library import PaperLibrary
 from tools.search_papers import SearchPapersTool

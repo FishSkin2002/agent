@@ -49,10 +49,12 @@ python -m pip install -r requirements.txt
 MODEL=deepseek-flash
 API_KEY=你的_API_Key
 MAX_OUTPUT_TOKENS=2048
+MAX_TOOL_CALLS=20
 ```
 
 - `MODEL` 可选 `deepseek-flash` 或 `glm-4.7-flash`。
 - `MAX_OUTPUT_TOKENS` 是每次模型生成的输出上限，默认 `2048`。修改后重启。
+- `MAX_TOOL_CALLS` 是每次提问的工具调用总上限，默认 `10`，`0` 停用工具。
 - `MEMORY_SHORT_TERM_TURNS` 同时设置短期记忆淘汰轮数和最近问答数，默认 `10`。
 
 ```bash

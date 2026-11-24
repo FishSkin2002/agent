@@ -50,11 +50,15 @@ MODEL=deepseek-flash
 API_KEY=你的_API_Key
 MAX_OUTPUT_TOKENS=2048
 MAX_TOOL_CALLS=20
+ALLOW_MULTIPLE_TOOL_CALLS=false
+SERPAPI_API_KEY=
 ```
 
 - `MODEL` 可选 `deepseek-flash` 或 `glm-4.7-flash`。
-- `MAX_OUTPUT_TOKENS` 是每次模型生成的输出上限，默认 `2048`。修改后重启。
+- `MAX_OUTPUT_TOKENS` 是每次模型生成的输出上限，包含思考和答复，默认 `2048`。修改后重启。
 - `MAX_TOOL_CALLS` 是每次提问的工具调用总上限，默认 `10`，`0` 停用工具。
+- `ALLOW_MULTIPLE_TOOL_CALLS` 默认 `false`，每个 ReAct 步骤执行至多一个工具。设为 `true` 可在同一步执行模型发出的多个调用。
+- `SERPAPI_API_KEY` 填写 [SerpAPI 密钥](https://serpapi.com/manage-api-key) 后注册 `search_web`，用 Google 网页标题、链接和摘要补充检索。
 - `MEMORY_SHORT_TERM_TURNS` 同时设置短期记忆淘汰轮数和最近问答数，默认 `10`。
 
 ```bash
@@ -62,6 +66,7 @@ python main.py
 ```
 
 在「用户 ❯」后输入问题，输入 `/exit` 退出。普通回复实时显示，论文答复在复核后显示。
+终端实时显示模型返回的思考内容。论文检索结果的终端摘要列出论文标题。
 ReAct 判断需要多步取证时，可进入计划阶段。终端实时显示完整计划，随后逐步执行。
 
 ### 添加 MCP 服务器

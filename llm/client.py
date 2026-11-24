@@ -39,8 +39,11 @@ def _merge_tool_calls(calls: dict[int, Message], deltas: list[Message]) -> None:
         call["function"]["arguments"] += function.get("arguments") or ""
 
 
-def _read_stream(lines: Iterable[bytes], on_text: Callable[[str], None] | None) -> tuple[Message, str | None]:
+def _read_stream(
+    lines: Iterable[bytes], on_text: Callable[[str], None] | None, on_reasoning: Callable[[str], None] | None,
+) -> tuple[Message, str | None]:
     text = []
+    reasoning = []
     calls: dict[int, Message] = {}
     finish_reason = None
     for data in _event_data(lines):
@@ -54,6 +57,12 @@ def _read_stream(lines: Iterable[bytes], on_text: Callable[[str], None] | None) 
         choice = choices[0]
         delta = choice.get("delta") or {}
         _merge_tool_calls(calls, delta.get("tool_calls") or [])
+        if thought := delta.get("reasoning_content"):
+            if not isinstance(thought, str):
+                raise ValueError("invalid reasoning delta")
+            reasoning.append(thought)
+            if on_reasoning is not None:
+                on_reasoning(thought)
         if content := delta.get("content"):
             if not isinstance(content, str):
                 raise ValueError("invalid content delta")
@@ -63,6 +72,8 @@ def _read_stream(lines: Iterable[bytes], on_text: Callable[[str], None] | None) 
         finish_reason = choice.get("finish_reason") or finish_reason
 
     message: Message = {"content": "".join(text) or None}
+    if reasoning:
+        message["reasoning_content"] = "".join(reasoning)
     if calls:
         message["tool_calls"] = [calls[index] for index in sorted(calls)]
     return message, finish_reason
@@ -71,16 +82,19 @@ def _read_stream(lines: Iterable[bytes], on_text: Callable[[str], None] | None) 
 def call_model(
     url: str, model: str, api_key: str, messages: list[Message], registry: ToolRegistry, *,
     max_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS, on_text: Callable[[str], None] | None = None,
+    on_reasoning: Callable[[str], None] | None = None,
 ) -> Message:
     payload = {
         "model": model,
         "messages": messages,
         "stream": True,
-        "thinking": {"type": "disabled"},
+        "thinking": {"type": "enabled"},
         "max_tokens": max_tokens,
     }
     if definitions := registry.definitions():
-        payload.update(tools=definitions, tool_choice="auto")
+        payload["tools"] = definitions
+        if model != "deepseek-flash":
+            payload["tool_choice"] = "auto"
     request = Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -90,10 +104,13 @@ def call_model(
     try:
         with urlopen(request, timeout=60) as response:
             if response.headers.get_content_type() == "text/event-stream":
-                message, finish_reason = _read_stream(response, on_text)
+                message, finish_reason = _read_stream(response, on_text, on_reasoning)
             else:
                 choice = json.loads(response.read())["choices"][0]
                 message, finish_reason = choice["message"], choice["finish_reason"]
+                if isinstance(message, dict) and on_reasoning is not None:
+                    if isinstance(thought := message.get("reasoning_content"), str) and thought:
+                        on_reasoning(thought)
     except HTTPError as error:
         error.close()
         raise RuntimeError(f"API 返回 HTTP {error.code}") from error
@@ -108,12 +125,16 @@ def call_model(
         raise RuntimeError("API 未返回完整的回复")
 
     reply = message.get("content")
+    assistant: Message = {"role": "assistant", "content": reply}
+    if isinstance(thought := message.get("reasoning_content"), str) and thought:
+        assistant["reasoning_content"] = thought
     tool_calls = message.get("tool_calls")
     if tool_calls or finish_reason == "tool_calls":
         if not isinstance(tool_calls, list) or not tool_calls:
             raise RuntimeError("API 未返回有效的工具调用列表")
-        return {"role": "assistant", "content": reply, "tool_calls": tool_calls}
+        assistant["tool_calls"] = tool_calls
+        return assistant
 
     if not isinstance(reply, str) or not reply.strip():
         raise RuntimeError("API 未返回完整的文本回复")
-    return {"role": "assistant", "content": reply}
+    return assistant

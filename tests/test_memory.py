@@ -65,7 +65,8 @@ class MemoryStoreTests(unittest.TestCase):
         with TemporaryDirectory() as clean_project:
             project_dir = Path(clean_project)
             (project_dir / ".env").write_text(
-                "MODEL=deepseek-flash\nAPI_KEY=test-key\nMEMORY_SHORT_TERM_TURNS=1\nMAX_OUTPUT_TOKENS=3072\n",
+                "MODEL=deepseek-flash\nAPI_KEY=test-key\nMEMORY_SHORT_TERM_TURNS=1\nMAX_OUTPUT_TOKENS=3072\n"
+                "ALLOW_MULTIPLE_TOOL_CALLS=true\n",
                 encoding="utf-8",
             )
             saved = self.tool_message("save_memory", [

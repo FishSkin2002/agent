@@ -131,7 +131,9 @@ class PaperWorkflowTests(unittest.TestCase):
         self.assertIn(steps[1], seen[4][0][-1]["content"])
         self.assertIn("HotpotQA 步骤记录", seen[5][0][-1]["content"])
         self.assertIn("查找 FEVER 示例数量", seen[7][0][-1]["content"])
-        self.assertEqual(json.loads(seen[7][0][-2]["content"]), {"passages": [HOT_POT_QA]})
+        retained_result = next(message for message in seen[7][0] if message.get("tool_call_id") == "hotpotqa")
+        self.assertEqual(json.loads(retained_result["content"]), {"passages": [HOT_POT_QA]})
+        self.assertEqual(seen[7][0][-2], text_message(draft))
         self.assertEqual(json.loads(seen[9][0][-1]["content"])["retrieval_results"], [
             {"tool": PASSAGE_TOOL, "result": {"passages": [HOT_POT_QA]}},
             {"tool": PASSAGE_TOOL, "result": {"passages": [FEVER]}},
@@ -167,7 +169,8 @@ class PaperWorkflowTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             project = Path(directory)
             (project / ".env").write_text(
-                "MODEL=glm-4.7-flash\nAPI_KEY=test-key\nMAX_TOOL_CALLS=2\n", encoding="utf-8",
+                "MODEL=glm-4.7-flash\nAPI_KEY=test-key\nMAX_TOOL_CALLS=2\nALLOW_MULTIPLE_TOOL_CALLS=true\n",
+                encoding="utf-8",
             )
             with (
                 patch.object(main, "__file__", str(project / "main.py")),
@@ -184,6 +187,30 @@ class PaperWorkflowTests(unittest.TestCase):
         skipped = next(message for message in step_request if message.get("tool_call_id") == "fever")
         self.assertIn("未执行此调用", skipped["content"])
         self.assertIn("证据缺口：缺少 FEVER 的原文。", output.getvalue())
+
+    def test_single_tool_mode_defers_extra_calls_without_spending_the_budget(self):
+        first = tool_message(PASSAGE_TOOL, "first", query="HotpotQA examples")
+        first["tool_calls"] += tool_message(PASSAGE_TOOL, "deferred", query="FEVER examples")["tool_calls"]
+        responses = iter([
+            first, tool_message(PASSAGE_TOOL, "retry", query="FEVER examples"),
+            text_message("已找到两处原文。"), review_message(),
+        ])
+        library = Mock()
+        library.search_passages.side_effect = [[HOT_POT_QA], [FEVER]]
+        self.registry.register(SearchPaperPassagesTool(library))
+
+        def model_response(url, model, api_key, messages, registry, **kwargs):
+            if messages[-1].get("tool_call_id") == "deferred":
+                self.assertIn("下一步重新调用", messages[-1]["content"])
+                library.search_passages.assert_called_once_with("HotpotQA examples", None)
+                self.assertTrue(registry.definitions())
+            return next(responses)
+
+        with patch.object(main, "call_model", side_effect=model_response):
+            turn = main.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry, max_tool_calls=2)
+        self.assertEqual(library.search_passages.call_count, 2)
+        self.assertEqual(library.search_passages.call_args.args, ("FEVER examples", None))
+        self.assertEqual(turn[-1], text_message("已找到两处原文。"))
 
     def test_zero_tool_budget_allows_only_text_reply(self):
         self.registry.register(SearchPaperPassagesTool(Mock()))
@@ -209,7 +236,7 @@ class PaperWorkflowTests(unittest.TestCase):
             turn = main.run_turn("unused", "deepseek-flash", "test-key", [], QUESTION, self.registry)
         self.assertEqual(model.call_count, 6)
         self.assertIn("补查未取得新证据", self.progress.getvalue())
-        self.assertEqual(turn[-1]["content"], "已有论文证据不足以给出完整答复。\n\n证据缺口：缺少 FEVER 的原文。")
+        self.assertEqual(turn[-1]["content"], "已有证据不足以给出完整答复。\n\n证据缺口：缺少 FEVER 的原文。")
 
     def test_invalid_review_keeps_a_visible_warning(self):
         responses = [

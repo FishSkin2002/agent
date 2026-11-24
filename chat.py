@@ -1,13 +1,20 @@
 import json
+import sqlite3
 import sys
+from collections import deque
+from contextlib import closing
 from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from memory import DEFAULT_SHORT_TERM_TURNS, MemoryStore
+from tools.forget_memory import ForgetMemoryTool
 from tools.list_tools import ListToolsTool
 from tools.registry import ToolRegistry
+from tools.save_memory import SaveMemoryTool
+from tools.search_memory import SearchMemoryTool
 from tools.search_papers import SearchPapersTool
 
 
@@ -26,16 +33,24 @@ SYSTEM_MESSAGE = {
         "你是论文检索助手，也可以回答一般概念问题。"
         "根据问题决定直接回答还是调用工具。可以查询可用工具，并根据描述和参数选择。"
         "用获取的证据回答并引用来源。查不到证据或证据不足时，请如实说明。"
+        "需要以前的信息时主动查找记忆。主动保存对后续对话有用的信息并评估重要性，"
+        "发现已有记忆需要更正或已经失效时，自主修改或淘汰。"
     ),
 }
 Message = dict[str, Any]
 
-tool_registry = ToolRegistry()
-tool_registry.register(ListToolsTool(tool_registry))
-tool_registry.register(SearchPapersTool())
+
+def create_tool_registry(memory: MemoryStore) -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(ListToolsTool(registry))
+    registry.register(SearchPapersTool())
+    registry.register(SaveMemoryTool(memory))
+    registry.register(SearchMemoryTool(memory))
+    registry.register(ForgetMemoryTool(memory))
+    return registry
 
 
-def load_config(path: Path) -> tuple[str, str, str]:
+def load_config(path: Path) -> tuple[str, str, str, int]:
     try:
         lines = path.read_text(encoding="utf-8-sig").splitlines()
     except (OSError, UnicodeError) as error:
@@ -66,17 +81,25 @@ def load_config(path: Path) -> tuple[str, str, str]:
         raise ValueError(f"请在 .env 的 MODEL 中选择 {supported_models}。")
     if not api_key:
         raise ValueError("请在 .env 的 API_KEY 中填写所选模型对应的密钥。")
-    return MODEL_ENDPOINTS[model], model, api_key
+    try:
+        short_term_turns = int(values.get("MEMORY_SHORT_TERM_TURNS", DEFAULT_SHORT_TERM_TURNS))
+    except ValueError as error:
+        raise ValueError("请在 .env 的 MEMORY_SHORT_TERM_TURNS 中填写正整数。") from error
+    if not 1 <= short_term_turns < 2**63:
+        raise ValueError("请在 .env 的 MEMORY_SHORT_TERM_TURNS 中填写有效的正整数。")
+    return MODEL_ENDPOINTS[model], model, api_key, short_term_turns
 
 
-def call_model(url: str, model: str, api_key: str, messages: list[Message]) -> Message:
+def call_model(
+    url: str, model: str, api_key: str, messages: list[Message], registry: ToolRegistry
+) -> Message:
     payload = {
         "model": model,
         "messages": messages,
         "stream": False,
         "thinking": {"type": "disabled"},
         "max_tokens": 1024,
-        "tools": tool_registry.definitions(),
+        "tools": registry.definitions(),
         "tool_choice": "auto",
     }
     request = Request(
@@ -119,13 +142,13 @@ def call_model(url: str, model: str, api_key: str, messages: list[Message]) -> M
 
 
 def run_turn(
-    url: str, model: str, api_key: str, history: list[Message], question: str
+    url: str, model: str, api_key: str, history: list[Message], question: str, registry: ToolRegistry
 ) -> list[Message]:
     turn = [{"role": "user", "content": question}]
     remaining_calls = MAX_TOOL_CALLS
 
     while True:
-        message = call_model(url, model, api_key, [SYSTEM_MESSAGE] + history + turn)
+        message = call_model(url, model, api_key, [SYSTEM_MESSAGE] + history + turn, registry)
         turn.append(message)
         tool_calls = message.get("tool_calls", [])
         if not tool_calls:
@@ -145,7 +168,7 @@ def run_turn(
             raise RuntimeError("API 返回了重复的工具调用 ID")
 
         for call, call_id in zip(tool_calls, call_ids):
-            result = tool_registry.invoke(call)
+            result = registry.invoke(call)
             turn.append({
                 "role": "tool",
                 "tool_call_id": call_id,
@@ -153,14 +176,9 @@ def run_turn(
             })
 
 
-def main() -> int:
-    try:
-        url, model, api_key = load_config(Path(__file__).with_name(".env"))
-    except ValueError as error:
-        print(error, file=sys.stderr)
-        return 1
-
-    history: list[Message] = []
+def chat(url: str, model: str, api_key: str, memory: MemoryStore) -> int:
+    registry = create_tool_registry(memory)
+    history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
     while True:
         question = input("你 > ").strip()
@@ -169,14 +187,36 @@ def main() -> int:
         if not question:
             continue
 
+        recent_messages = [message for recent_turn in history for message in recent_turn]
         try:
-            turn = run_turn(url, model, api_key, history, question)
-        except RuntimeError as error:
+            with memory.turn():
+                turn = run_turn(url, model, api_key, recent_messages, question, registry)
+        except (RuntimeError, sqlite3.Error) as error:
             print(f"调用失败（{error}）。可以重新输入后再试。", file=sys.stderr)
             continue
 
-        history.extend(turn)
+        history.append(turn)
         print(f"助手 > {turn[-1]['content']}")
+
+
+def main() -> int:
+    project_dir = Path(__file__).parent
+    try:
+        url, model, api_key, short_term_turns = load_config(project_dir / ".env")
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+
+    data_dir = project_dir / ".agent-data"
+    try:
+        data_dir.mkdir(exist_ok=True)
+        memory = MemoryStore(data_dir / "memory.sqlite3", short_term_turns)
+    except (OSError, sqlite3.Error) as error:
+        print(f"无法打开记忆数据库（{error}）。", file=sys.stderr)
+        return 1
+
+    with closing(memory):
+        return chat(url, model, api_key, memory)
 
 
 if __name__ == "__main__":

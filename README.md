@@ -8,7 +8,7 @@
 .
 ├── docs/          # Git 工作约定、命令规则和 README 编写约定
 ├── scripts/       # 仓库 Git 维护脚本及其隔离测试
-├── tools/         # Agent 的论文检索工具
+├── tools/         # Agent 的工具注册表和论文检索工具
 ├── .gitignore     # 本地笔记、环境变量文件及缓存的忽略规则
 ├── AGENTS.md      # 项目协作与教学方式
 ├── README.md      # 项目用途与目录
@@ -41,6 +41,8 @@ python -m pip install -r requirements.txt
 ## 主要脚本使用说明
 
 `chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。模型可用 `search_papers` 提交一条主查询和最多两条补充查询。程序分别查询 arXiv，合并去重后返回最多 5 篇论文，供模型根据摘要和链接回答。
+
+模型自主决定直接回答或调用工具。输入“请用工具查看你当前有哪些工具”，可以让模型通过 `list_tools` 查询工具名、用途和参数。
 
 在仓库根目录准备 `.env`，选择模型并填入对应服务的密钥。例如使用 DeepSeek 时填写如下。
 

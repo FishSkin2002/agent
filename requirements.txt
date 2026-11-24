@@ -1,4 +1,7 @@
+anyio==4.16.0
 arxiv==4.1.0
 fastembed==0.9.1
+httpx2==2.16.2
+mcp==2.3.0
 numpy==2.5.5
 pypdf==7.1.1

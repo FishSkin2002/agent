@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from memory import DEFAULT_SHORT_TERM_TURNS, MemoryStore
 from tools.forget_memory import ForgetMemoryTool
 from tools.list_tools import ListToolsTool
+from tools.mcp_client import MCPConfigError, register_mcp_tools
 from tools.paper_library import PaperLibrary
 from tools.registry import ToolRegistry
 from tools.save_memory import SaveMemoryTool
@@ -182,8 +183,7 @@ def run_turn(
             })
 
 
-def chat(url: str, model: str, api_key: str, memory: MemoryStore, papers: PaperLibrary) -> int:
-    registry = create_tool_registry(memory, papers)
+def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: ToolRegistry) -> int:
     history: deque[list[Message]] = deque(maxlen=memory.short_term_turns)
     print(f"当前模型为 {model}。输入 /exit 结束对话。")
     while True:
@@ -222,7 +222,14 @@ def main() -> int:
         except (OSError, sqlite3.Error) as error:
             print(f"无法打开本地数据库（{error}）。", file=sys.stderr)
             return 1
-        return chat(url, model, api_key, memory, papers)
+
+        registry = create_tool_registry(memory, papers)
+        try:
+            stack.enter_context(register_mcp_tools(project_dir / "mcp.json", registry))
+        except MCPConfigError as error:
+            print(error, file=sys.stderr)
+            return 1
+        return chat(url, model, api_key, memory, registry)
 
 
 if __name__ == "__main__":

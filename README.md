@@ -50,7 +50,7 @@ python paper_search.py 'ti:"Synergizing Reasoning and Acting"'
 
 ### 命令行对话
 
-`chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。
+`chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。模型可调用 `search_papers` 在线检索 arXiv，再根据摘要和链接回答。
 
 在仓库根目录准备 `.env`，选择模型并填入对应服务的密钥。例如使用 DeepSeek 时填写如下。
 
@@ -66,4 +66,4 @@ API_KEY=你的_API_Key
 python chat.py
 ```
 
-可以先问“什么是 BM25？”，再追问“它为什么要考虑文档长度？”。输入 `/exit` 结束对话。
+可以问“请检索 ReAct 的原论文，根据摘要说明它怎样结合推理和行动，并给出论文链接。”终端会显示检索关键词，每轮最多执行 3 次工具调用。输入 `/exit` 结束对话。

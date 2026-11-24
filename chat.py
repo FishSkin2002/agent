@@ -51,9 +51,9 @@ def report_progress(stage: str, message: str) -> None:
 
 
 def read_question() -> str:
-    label = "【 你 · 输入问题 】"
+    label = "【 用户 】"
     if sys.stdout.isatty() and os.environ.get("TERM") != "dumb" and "NO_COLOR" not in os.environ:
-        label = "\x1b[1;30;106m  你 · 输入问题  \x1b[0m"
+        label = "\x1b[1;30;106m  用户  \x1b[0m"
     print(f"\n{label} ❯ ", end="", flush=True)
     return input().strip()
 

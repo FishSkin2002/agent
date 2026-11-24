@@ -54,5 +54,5 @@ class ChatProgressTests(unittest.TestCase):
             ):
                 self.assertEqual(chat.chat("ignored", "deepseek-flash", "test-key", memory, registry), 0)
 
-        self.assertIn("【 你 · 输入问题 】 ❯", output.getvalue())
+        self.assertIn("【 用户 】 ❯", output.getvalue())
         self.assertIn("【助手】\n这次没有搜到论文。", output.getvalue())

@@ -271,7 +271,7 @@ def _review_draft(
             '只返回 JSON 对象，格式为 {"answer":"", "missing_evidence":""}。'
             "草稿通过复核时，两项留空。需要修订时，answer 填入可直接交给用户的完整答复。"
             "如果回答原问题仍需要查找关键证据，missing_evidence 写清应补查的事实或原文位置，"
-            "answer 只保留已有证据能支持的内容。"
+            "answer 只保留已有证据能支持的内容，尚无可交付的内容时留空。"
         )},
         {"role": "user", "content": json.dumps({
             "recent_history": history, "question": question, "draft": draft, "retrieval_results": paper_results,
@@ -286,9 +286,9 @@ def _review_draft(
         answer, missing = data["answer"].strip(), data["missing_evidence"].strip()
     except (ValueError, KeyError, TypeError, AttributeError) as error:
         raise RuntimeError("模型未返回有效的复核结果") from error
-    if missing and not answer:
-        raise RuntimeError("复核结果缺少可交付的答复")
-    return answer or draft, missing
+    if missing:
+        return answer or "已有论文证据不足以给出完整答复。", missing
+    return answer or draft, ""
 
 
 def run_turn(

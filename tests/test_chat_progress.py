@@ -17,7 +17,11 @@ class ChatProgressTests(unittest.TestCase):
         output = io.StringIO()
         query = 'ti:"On-Policy Self-Distillation"'
 
-        def model_response(url, model, api_key, messages, registry):
+        def model_response(url, model, api_key, messages, registry, *, max_tokens=1024):
+            if not registry.definitions():
+                self.assertIn("正在核对答复与论文证据", progress.getvalue())
+                self.assertEqual(json.loads(messages[-1]["content"])["draft"], "这次没有搜到论文。")
+                return {"role": "assistant", "content": '{"answer":"", "missing_evidence":""}'}
             if messages[-1]["role"] == "user":
                 self.assertIn("正在等待 deepseek-flash 处理问题", progress.getvalue())
                 return {

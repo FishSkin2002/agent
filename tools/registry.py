@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from .base import Tool
@@ -11,6 +13,14 @@ class ToolRegistry:
         if tool.name in self._tools:
             raise ValueError(f"工具 {tool.name} 已注册")
         self._tools[tool.name] = tool
+
+    @contextmanager
+    def temporary(self, tool: Tool) -> Iterator[None]:
+        self.register(tool)
+        try:
+            yield
+        finally:
+            del self._tools[tool.name]
 
     def definitions(self) -> list[dict[str, Any]]:
         return [tool.definition() for tool in self._tools.values()]

@@ -1,10 +1,12 @@
 import io
 import json
 import unittest
-from contextlib import redirect_stderr
+from contextlib import closing, redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import main
+from memory import MemoryStore
 from tools.create_plan import CreatePlanTool
 from tools.registry import ToolRegistry
 from tools.search_paper_passages import SearchPaperPassagesTool
@@ -36,6 +38,42 @@ class PaperWorkflowTests(unittest.TestCase):
     def setUp(self):
         self.registry = ToolRegistry()
         self.progress = self.enterContext(redirect_stderr(io.StringIO()))
+
+    def test_follow_up_receives_previous_dialogue_and_current_tool_results(self):
+        follow_up = "刚才 FEVER 的证据在哪一页？请再核对原文。"
+        answer = f"HotpotQA 用了 6 个，FEVER 用了 3 个。见 ReAct v3 第 4 页（{PAGE_URL}）。"
+        responses = [
+            tool_message(PASSAGE_TOOL, "first", query="HotpotQA and FEVER examples"),
+            text_message("原始草稿"),
+            review_message(answer),
+            tool_message(PASSAGE_TOOL, "follow-up", query="FEVER examples"),
+            text_message(f"证据在 ReAct v3 第 4 页（{PAGE_URL}）。"),
+            review_message(),
+        ]
+        library = Mock()
+        library.search_passages.side_effect = [[HOT_POT_QA, FEVER], [FEVER]]
+        self.registry.register(SearchPaperPassagesTool(library))
+
+        with (
+            closing(MemoryStore(Path(":memory:"))) as memory,
+            redirect_stdout(io.StringIO()),
+            patch("builtins.input", side_effect=[QUESTION, follow_up, "/exit"]),
+            patch.object(main, "call_model", side_effect=responses) as model,
+        ):
+            self.assertEqual(main.chat("unused", "deepseek-flash", "test-key", memory, self.registry), 0)
+
+        previous_dialogue = [{"role": "user", "content": QUESTION}, text_message(answer)]
+        self.assertEqual(model.call_args_list[3].args[3][1:], [
+            *previous_dialogue, {"role": "user", "content": follow_up},
+        ])
+        current_result = model.call_args_list[4].args[3][-1]
+        self.assertEqual(current_result["tool_call_id"], "follow-up")
+        self.assertEqual(json.loads(current_result["content"]), {"passages": [FEVER]})
+        review_input = json.loads(model.call_args_list[5].args[3][-1]["content"])
+        self.assertEqual(review_input["recent_history"], previous_dialogue)
+        self.assertEqual(review_input["retrieval_results"], [
+            {"tool": PASSAGE_TOOL, "result": {"passages": [FEVER]}},
+        ])
 
     def test_plan_advances_steps_before_review_and_supplements_with_existing_evidence(self):
         steps = ["核对 HotpotQA 的示例数", "核对 FEVER 的示例数"]

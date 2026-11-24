@@ -366,10 +366,14 @@ def chat(url: str, model: str, api_key: str, memory: MemoryStore, registry: Tool
         if not question:
             continue
 
-        recent_messages = [message for recent_turn in history for message in recent_turn]
+        recent_dialogue = [
+            message
+            for previous_turn in history
+            for message in (previous_turn[0], previous_turn[-1])
+        ]
         try:
             with memory.turn():
-                turn = run_turn(url, model, api_key, recent_messages, question, registry)
+                turn = run_turn(url, model, api_key, recent_dialogue, question, registry)
         except (RuntimeError, sqlite3.Error) as error:
             print(f"调用失败（{error}）。可以重新输入后再试。", file=sys.stderr)
             continue

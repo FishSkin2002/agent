@@ -1,3 +1,4 @@
 /local-notes/
+/.agent-data/
 __pycache__/
 .env

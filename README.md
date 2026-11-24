@@ -40,7 +40,7 @@ python -m pip install -r requirements.txt
 
 ## 主要脚本使用说明
 
-`chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。模型可用 `search_papers` 提交一条主查询和最多两条补充查询。程序分别查询 arXiv，合并去重后返回最多 5 篇论文，供模型根据摘要和链接回答。
+`chat.py` 通过 GLM 或 DeepSeek API 进行命令行多轮对话。每次调用 `search_papers` 接收一个 `query`，执行一次 arXiv 查询并返回最多 5 篇论文。模型可以根据结果改写查询，再发起一次工具调用。
 
 模型自主决定直接回答或调用工具。输入“请用工具查看你当前有哪些工具”，可以让模型通过 `list_tools` 查询工具名、用途和参数。
 
@@ -60,4 +60,4 @@ API_KEY=你的_API_Key
 python chat.py
 ```
 
-每轮最多执行 3 次工具调用。输入 `/exit` 结束对话。
+每轮最多执行 10 次工具调用。输入 `/exit` 结束对话。
